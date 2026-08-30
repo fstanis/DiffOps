@@ -85,18 +85,6 @@ logElement.style.overflow = 'auto';
 logElement.style.margin = '8px 0 16px';
 document.body.appendChild(logElement);
 
-// Mirror every line to the preview server so the trail survives a renderer
-// crash (which this check exists to diagnose).
-const logToServer = (line: string): void => {
-  void fetch('./engine-check/log', {
-    method: 'POST',
-    body: line,
-    keepalive: true,
-  }).catch(() => {
-    // The sink is best-effort diagnostics only.
-  });
-};
-
 const renderLogLine = (line: string): void => {
   const row = document.createElement('div');
   row.textContent = line;
@@ -134,7 +122,6 @@ const patchConsole = (method: 'log' | 'warn' | 'error'): void => {
       return;
     }
     renderLogLine(line);
-    logToServer(line);
   };
 };
 patchConsole('log');
@@ -243,10 +230,7 @@ void (async () => {
 
     const client = createWorkerGitClient({
       timeoutMs: REQUEST_TIMEOUT_MS,
-      onLog: (line) => {
-        renderLogLine(line);
-        logToServer(line);
-      },
+      onLog: renderLogLine,
     });
     const engine = new GitEngine(client);
     const { expected } = manifest;

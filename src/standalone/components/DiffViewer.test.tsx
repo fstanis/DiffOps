@@ -4,9 +4,17 @@ import { describe, expect, it, vi, beforeEach } from 'bun:test';
 import { type DiffFile, type FileExplanation } from '../../types/diff';
 import { WordHighlightProvider } from '../contexts/WordHighlightContext';
 import type { MergedChunk } from '../hooks/useExpandedLines';
+import { DEFAULT_AI_SETTINGS } from '../hooks/useAiSettings';
+import type { FileExplanationRequest } from '../services/aiGateway';
 import { buildFileExplanationFingerprint } from '../utils/explanationFingerprint';
 
 import { DiffViewer } from './DiffViewer';
+
+// The gateway is the network boundary here; the hook's own fetches (blob
+// content, persistence) stay on the global fetch mock.
+const generateFileExplanation =
+  vi.fn<(request: FileExplanationRequest) => Promise<FileExplanation>>();
+vi.mock('../services/aiGateway', () => ({ generateFileExplanation }));
 
 // Each fixture gets its own path: the whole-file content cache is keyed by
 // path, so distinct paths keep tests from sharing fetched content.
@@ -113,7 +121,7 @@ const buildProps = (file: DiffFile, overrides: Partial<DiffViewerProps> = {}): D
   onToggleCollapsed: noop,
   onToggleAllCollapsed: noop,
   commitLabel: 'abc1234...def5678',
-  explainStatus: { enabled: true, model: 'anthropic/claude-sonnet-5' },
+  aiSettings: { ...DEFAULT_AI_SETTINGS, apiKey: 'test-key' },
   onAddComment: asyncNoop,
   onGenerateThreadPrompt: () => '',
   onRemoveThread: noop,
@@ -171,7 +179,7 @@ interface BlobRouting {
 
 const mockExplainFetches = (options: {
   blobs?: BlobRouting;
-  /** A value or a late-binding getter, so tests can swap responses between rounds. */
+  /** A value or a late-binding getter, so tests can swap answers between rounds. */
   explanation?: FileExplanation | (() => FileExplanation);
   stored?: unknown;
 }) => {
@@ -187,21 +195,27 @@ const mockExplainFetches = (options: {
     if (url.startsWith('/api/explanation')) {
       return jsonResponse({ explanation: options.stored ?? null });
     }
-    if (url === '/ai-gateway/explain') {
-      const explanation =
-        typeof options.explanation === 'function' ? options.explanation() : options.explanation;
-      return jsonResponse({ explanation });
-    }
     return jsonResponse({});
   });
+  generateFileExplanation.mockImplementation(() =>
+    Promise.resolve(
+      typeof options.explanation === 'function'
+        ? options.explanation()
+        : (options.explanation as FileExplanation),
+    ),
+  );
 };
 
 const getCalls = (urlPrefix: string) =>
   vi.mocked(global.fetch).mock.calls.filter(([url]) => String(url).startsWith(urlPrefix));
 
+const explainRequests = (): FileExplanationRequest[] =>
+  generateFileExplanation.mock.calls.map(([request]) => request);
+
 describe('DiffViewer explain feature', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    generateFileExplanation.mockReset();
     vi.mocked(global.fetch).mockImplementation((_input: RequestInfo | URL) => jsonResponse({}));
   });
 
@@ -220,16 +234,16 @@ describe('DiffViewer explain feature', () => {
 
     expect(await screen.findByText('Runs the app.')).toBeInTheDocument();
 
-    const explainCalls = getCalls('/ai-gateway/explain');
-    expect(explainCalls).toHaveLength(1);
-    const [, init] = explainCalls[0] as [RequestInfo, RequestInit];
-    expect(init.method).toBe('POST');
-    const body = JSON.parse(String(init.body)) as { prompt: string; candidateFiles: string[] };
-    expect(body.prompt).toContain('## File: src/example.ts');
-    expect(body.prompt).toContain(wholeFile);
-    expect(body.prompt).toContain('## Files you may request');
-    expect(body.prompt).not.toContain('Unified diff');
-    expect(body.candidateFiles).toEqual(['src/helper.ts']);
+    const requests = explainRequests();
+    expect(requests).toHaveLength(1);
+    const request = requests[0] as FileExplanationRequest;
+    expect(request.model).toBe(DEFAULT_AI_SETTINGS.explainModel);
+    expect(request.apiKey).toBe('test-key');
+    expect(request.prompt).toContain('## File: src/example.ts');
+    expect(request.prompt).toContain(wholeFile);
+    expect(request.prompt).toContain('## Files you may request');
+    expect(request.prompt).not.toContain('Unified diff');
+    expect(request.candidateFiles).toEqual(['src/helper.ts']);
   });
 
   it('posts the whole file content for an added file without fetching its blob', async () => {
@@ -240,11 +254,10 @@ describe('DiffViewer explain feature', () => {
 
     expect(await screen.findByText('A new module.')).toBeInTheDocument();
 
-    const [, init] = getCalls('/ai-gateway/explain')[0] as [RequestInfo, RequestInit];
-    const body = JSON.parse(String(init.body)) as { prompt: string; candidateFiles: string[] };
-    expect(body.prompt).toContain('## File: src/fresh.ts');
-    expect(body.prompt).toContain('added line 0\nadded line 1');
-    expect(body.candidateFiles).toEqual([]);
+    const request = explainRequests()[0] as FileExplanationRequest;
+    expect(request.prompt).toContain('## File: src/fresh.ts');
+    expect(request.prompt).toContain('added line 0\nadded line 1');
+    expect(request.candidateFiles).toEqual([]);
     expect(getCalls('/api/blob/')).toHaveLength(0);
   });
 
@@ -298,18 +311,14 @@ describe('DiffViewer explain feature', () => {
 
     expect(await screen.findByText('Grounded now.')).toBeInTheDocument();
 
-    const explainCalls = getCalls('/ai-gateway/explain');
-    expect(explainCalls).toHaveLength(2);
-    const [, reaskInit] = explainCalls[1] as [RequestInfo, RequestInit];
-    const reaskBody = JSON.parse(String(reaskInit.body)) as {
-      prompt: string;
-      candidateFiles: string[];
-    };
-    expect(reaskBody.candidateFiles).toEqual([]);
-    expect(reaskBody.prompt).toContain('final round');
-    expect(reaskBody.prompt).toContain('## Supporting files');
-    expect(reaskBody.prompt).toContain('### src/helper.ts');
-    expect(reaskBody.prompt).toContain('export const helper = 1;');
+    const requests = explainRequests();
+    expect(requests).toHaveLength(2);
+    const reaskRequest = requests[1] as FileExplanationRequest;
+    expect(reaskRequest.candidateFiles).toEqual([]);
+    expect(reaskRequest.prompt).toContain('final round');
+    expect(reaskRequest.prompt).toContain('## Supporting files');
+    expect(reaskRequest.prompt).toContain('### src/helper.ts');
+    expect(reaskRequest.prompt).toContain('export const helper = 1;');
 
     // The re-ask is the only round; the offer never comes back.
     expect(screen.queryByRole('button', { name: REASK_BUTTON_NAME })).not.toBeInTheDocument();
@@ -347,18 +356,12 @@ describe('DiffViewer explain feature', () => {
 
   it('shows the error with a Retry button and recovers on retry', async () => {
     let shouldFail = true;
-    vi.mocked(global.fetch).mockImplementation((input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url === '/ai-gateway/explain') {
-        return shouldFail
-          ? jsonResponse({ error: 'Failed to generate explanation' }, false, 502)
-          : jsonResponse({ explanation: structuredExplanation({ fileSummary: 'Works now.' }) });
-      }
-      if (url.startsWith('/api/blob/')) {
-        return textResponse(makeFileContent(25));
-      }
-      return jsonResponse({});
-    });
+    mockExplainFetches({ blobs: { 'src/retry.ts': makeFileContent(25) } });
+    generateFileExplanation.mockImplementation(() =>
+      shouldFail
+        ? Promise.reject(new Error('Failed to generate explanation'))
+        : Promise.resolve(structuredExplanation({ fileSummary: 'Works now.' })),
+    );
 
     renderViewer(makeModifiedFile('src/retry.ts'));
     fireEvent.click(screen.getByRole('button', { name: EXPLAIN_BUTTON_NAME }));
@@ -369,33 +372,27 @@ describe('DiffViewer explain feature', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
 
     expect(await screen.findByText('Works now.')).toBeInTheDocument();
-    expect(getCalls('/ai-gateway/explain')).toHaveLength(2);
+    expect(explainRequests()).toHaveLength(2);
   });
 
   it('aborts an in-flight explanation when the panel is closed', async () => {
     let releaseRequest: (() => void) | undefined;
-    vi.mocked(global.fetch).mockImplementation((input: RequestInfo | URL) => {
-      if (String(input) === '/ai-gateway/explain') {
-        return new Promise<Response>((resolve) => {
-          releaseRequest = () =>
-            resolve(jsonResponse({ explanation: structuredExplanation({ fileSummary: 'late' }) }));
-        });
-      }
-      if (String(input).startsWith('/api/blob/')) {
-        return textResponse(makeFileContent(25));
-      }
-      return jsonResponse({});
-    });
+    mockExplainFetches({ blobs: { 'src/abort.ts': makeFileContent(25) } });
+    generateFileExplanation.mockImplementation(
+      () =>
+        new Promise<FileExplanation>((resolve) => {
+          releaseRequest = () => resolve(structuredExplanation({ fileSummary: 'late' }));
+        }),
+    );
 
     renderViewer(makeModifiedFile('src/abort.ts'));
     fireEvent.click(screen.getByRole('button', { name: EXPLAIN_BUTTON_NAME }));
     expect(screen.getByRole('status')).toBeInTheDocument();
 
     await waitFor(() => {
-      expect(getCalls('/ai-gateway/explain')).toHaveLength(1);
+      expect(explainRequests()).toHaveLength(1);
     });
-    const [, init] = getCalls('/ai-gateway/explain')[0] as [RequestInfo, RequestInit];
-    const signal = init.signal as AbortSignal;
+    const signal = (explainRequests()[0] as FileExplanationRequest).signal as AbortSignal;
 
     // Clicking Explain again collapses the panel and aborts the request
     fireEvent.click(screen.getByRole('button', { name: EXPLAIN_BUTTON_NAME }));
@@ -406,22 +403,11 @@ describe('DiffViewer explain feature', () => {
     releaseRequest?.();
   });
 
-  it('disables the button with a tooltip naming the env var when no API key is configured', () => {
-    renderViewer(makeModifiedFile('src/gated.ts'), {
-      explainStatus: { enabled: false, model: 'anthropic/claude-sonnet-5' },
-    });
+  it('disables the button pointing at Settings when no API key is configured', () => {
+    renderViewer(makeModifiedFile('src/gated.ts'), { aiSettings: DEFAULT_AI_SETTINGS });
 
     const button = screen.getByTitle(
-      'Set the AI_GATEWAY_API_KEY environment variable to enable AI explanations',
-    );
-    expect(button).toBeDisabled();
-  });
-
-  it('disables the button with the offline reason when the gateway probe fails', () => {
-    renderViewer(makeModifiedFile('src/gated.ts'), { explainStatus: null });
-
-    const button = screen.getByTitle(
-      'Explain needs the diffops server — it is offline or not serving this app',
+      'Add an AI Gateway API key in Settings to enable AI explanations',
     );
     expect(button).toBeDisabled();
   });
@@ -501,7 +487,7 @@ describe('DiffViewer explain feature', () => {
     fireEvent.click(screen.getByRole('button', { name: EXPLAIN_BUTTON_NAME }));
 
     expect(await screen.findByText('Restored summary.')).toBeInTheDocument();
-    expect(getCalls('/ai-gateway/explain')).toHaveLength(0);
+    expect(explainRequests()).toHaveLength(0);
   });
 
   it('treats a stale persisted fingerprint as absent', async () => {
@@ -550,8 +536,8 @@ describe('DiffViewer explain feature', () => {
         <DiffViewer {...buildProps(file)} />
       </WordHighlightProvider>,
     );
-    // Re-expanded: instantly visible again, without another API call
+    // Re-expanded: instantly visible again, without another model call
     expect(screen.getByText('Cached explanation.')).toBeInTheDocument();
-    expect(getCalls('/ai-gateway/explain')).toHaveLength(1);
+    expect(explainRequests()).toHaveLength(1);
   });
 });

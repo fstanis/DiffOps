@@ -6,12 +6,10 @@ import { expect, test } from '@playwright/test';
 // a mode-only change) committed as the render fixture for the smoke specs.
 const reviewDiff = readFileSync(new URL('fixtures/review.diff', import.meta.url), 'utf8');
 
-// A .diff-only session must never pay for the git engine: no worker bundle,
-// no wasm, no engine chunk hits the network.
+// A .diff-only session must never start the git engine: neither the worker
+// bundle nor the wasm binary hits the network.
 const isEngineRequest = (url: URL): boolean =>
-  /\/git-worker\.js$/.test(url.pathname) ||
-  /\/lg2_workerfs\.wasm$/.test(url.pathname) ||
-  /\/gitEngine-/.test(url.pathname);
+  /\/git-worker\.js$/.test(url.pathname) || /\/lg2_workerfs\.wasm$/.test(url.pathname);
 
 const writeReviewDiff = (name: string): string => {
   const diffFile = test.info().outputPath(name);

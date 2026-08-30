@@ -672,9 +672,6 @@ export const installLocalApiBridge = (options: LocalApiBridgeOptions = {}): Loca
       return handleExplanationGet(requestUrl);
     }
 
-    // /ai-gateway/* passes through to the real network so the AI features
-    // work exactly when the diffops server is hosting the app.
-
     if (requestUrl.pathname === '/api/user-settings') {
       if (init?.method === 'PUT') {
         return handleUserSettingsPut(init);

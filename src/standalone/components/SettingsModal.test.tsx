@@ -3,6 +3,7 @@ import React from 'react';
 import { HotkeysProvider } from 'react-hotkeys-hook';
 import { describe, expect, it, vi } from 'bun:test';
 
+import { DEFAULT_AI_SETTINGS } from '../hooks/useAiSettings';
 import { SettingsModal } from './SettingsModal';
 
 vi.mock('react-hotkeys-hook', () => ({
@@ -29,6 +30,8 @@ const baseSettings = {
   autoViewedPatterns: [],
 };
 
+const baseAiSettings = { ...DEFAULT_AI_SETTINGS };
+
 describe('SettingsModal', () => {
   it('shows appearance settings by default and switches to the system section', () => {
     render(
@@ -37,6 +40,8 @@ describe('SettingsModal', () => {
         onClose={vi.fn()}
         settings={baseSettings}
         onSettingsChange={vi.fn()}
+        aiSettings={baseAiSettings}
+        onAiSettingsChange={vi.fn()}
       />,
       { wrapper },
     );
@@ -66,6 +71,8 @@ describe('SettingsModal', () => {
         onClose={vi.fn()}
         settings={baseSettings}
         onSettingsChange={vi.fn()}
+        aiSettings={baseAiSettings}
+        onAiSettingsChange={vi.fn()}
       />,
       { wrapper },
     );
@@ -106,6 +113,8 @@ describe('SettingsModal', () => {
         onClose={vi.fn()}
         settings={baseSettings}
         onSettingsChange={onSettingsChange}
+        aiSettings={baseAiSettings}
+        onAiSettingsChange={vi.fn()}
       />,
       { wrapper },
     );

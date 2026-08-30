@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { type DiffFile, type ExplainStatusResponse, type Narration } from '../../types/diff';
+import { type DiffFile, type Narration } from '../../types/diff';
 import {
   NARRATE_PROMPT_MAX_BYTES,
   buildNarratePrompt,
@@ -8,6 +8,7 @@ import {
 } from '../../utils/narratePrompt';
 import { buildChangesetFingerprint } from '../utils/narrationFingerprint';
 import type { StoredNarration } from '../persistence/standaloneStore';
+import type { AiSettings } from './useAiSettings';
 
 export type NarrationPhase = 'idle' | 'loading' | 'error';
 
@@ -16,7 +17,7 @@ interface UseNarrationOptions {
   commitLabel: string;
   /** Comment-session query string; absent means narration stays in memory only. */
   sessionQueryString: string | null;
-  gatewayStatus: ExplainStatusResponse | null;
+  aiSettings: AiSettings;
 }
 
 export interface UseNarrationReturn {
@@ -25,26 +26,16 @@ export interface UseNarrationReturn {
   phase: NarrationPhase;
   errorMessage: string;
   disabledReason: string | undefined;
-  narrateModel: string | undefined;
+  narrateModel: string;
   toggleNarratedView: () => void;
   regenerate: () => void;
 }
-
-const isNarration = (value: unknown): value is Narration => {
-  const candidate = value as { intro?: unknown; cards?: unknown; epilogue?: unknown } | null;
-  return (
-    candidate !== null &&
-    typeof candidate.intro === 'string' &&
-    typeof candidate.epilogue === 'string' &&
-    Array.isArray(candidate.cards)
-  );
-};
 
 export function useNarration({
   files,
   commitLabel,
   sessionQueryString,
-  gatewayStatus,
+  aiSettings,
 }: UseNarrationOptions): UseNarrationReturn {
   const [narration, setNarration] = useState<Narration | null>(null);
   const [isNarratedView, setIsNarratedView] = useState(false);
@@ -68,14 +59,11 @@ export function useNarration({
     if (measureNarratePromptBytes(prompt) > NARRATE_PROMPT_MAX_BYTES) {
       return 'Changeset too large to narrate';
     }
-    if (!gatewayStatus) {
-      return 'Narration needs the diffops server — it is offline or not serving this app';
-    }
-    if (!gatewayStatus.enabled) {
-      return 'Set the AI_GATEWAY_API_KEY environment variable to enable narration';
+    if (!aiSettings.apiKey) {
+      return 'Add an AI Gateway API key in Settings to enable narration';
     }
     return undefined;
-  }, [files.length, prompt, gatewayStatus]);
+  }, [files.length, prompt, aiSettings.apiKey]);
 
   // Load the persisted narration; a fingerprint mismatch reads as absent,
   // leaving git order in place.
@@ -133,31 +121,23 @@ export function useNarration({
     const requestFingerprint = fingerprint;
 
     try {
-      const response = await fetch('/ai-gateway/narrate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, paths: files.map((file) => file.path) }),
+      // The AI SDK loads only once a user actually asks for a narration.
+      const { generateNarration } = await import('../services/aiGateway');
+      const narrated = await generateNarration({
+        prompt,
+        paths: files.map((file) => file.path),
+        model: aiSettings.narrateModel,
+        apiKey: aiSettings.apiKey,
       });
-      const data = (await response.json().catch(() => null)) as {
-        narration?: unknown;
-        error?: unknown;
-      } | null;
-      if (!response.ok || !isNarration(data?.narration)) {
-        throw new Error(
-          typeof data?.error === 'string'
-            ? data.error
-            : `Narration request failed (${response.status})`,
-        );
-      }
 
       // The diff moved; the new fingerprint's reset already owns the state.
       if (requestFingerprint !== fingerprintRef.current) {
         return;
       }
-      setNarration(data.narration);
+      setNarration(narrated);
       setPhase('idle');
       setIsNarratedView(true);
-      persistNarration(data.narration);
+      persistNarration(narrated);
     } catch (error) {
       if (requestFingerprint !== fingerprintRef.current) {
         return;
@@ -165,7 +145,7 @@ export function useNarration({
       setPhase('error');
       setErrorMessage(error instanceof Error ? error.message : 'Narration request failed');
     }
-  }, [files, prompt, fingerprint, persistNarration]);
+  }, [files, prompt, fingerprint, persistNarration, aiSettings.narrateModel, aiSettings.apiKey]);
 
   const toggleNarratedView = useCallback(() => {
     if (phase === 'loading' || disabledReason) {
@@ -195,7 +175,7 @@ export function useNarration({
     phase,
     errorMessage,
     disabledReason,
-    narrateModel: gatewayStatus?.narrateModel,
+    narrateModel: aiSettings.narrateModel,
     toggleNarratedView,
     regenerate,
   };

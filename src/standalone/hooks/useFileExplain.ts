@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { type DiffFile, type ExplainStatusResponse, type FileExplanation } from '../../types/diff';
+import { type DiffFile, type FileExplanation } from '../../types/diff';
 import { resolveExplainCandidates } from '../../utils/explainCandidates';
 import {
   type ExplainSupportingFile,
@@ -19,6 +19,7 @@ import {
   linesFromAddedFile,
 } from '../utils/currentFileContent';
 import type { StoredFileExplanation } from '../persistence/standaloneStore';
+import type { AiSettings } from './useAiSettings';
 
 export type FileExplainPhase = 'idle' | 'loading' | 'loaded' | 'error';
 
@@ -73,7 +74,7 @@ interface UseFileExplainOptions {
   file: DiffFile;
   commitLabel?: string;
   targetCommitish?: string;
-  explainStatus?: ExplainStatusResponse | null;
+  aiSettings: AiSettings;
   /** Comment-session query string; absent means explanations stay in memory only. */
   sessionQueryString?: string | null;
 }
@@ -82,7 +83,7 @@ export function useFileExplain({
   file,
   commitLabel,
   targetCommitish,
-  explainStatus,
+  aiSettings,
   sessionQueryString,
 }: UseFileExplainOptions) {
   const [isPanelOpen, setIsPanelOpen] = useState(false);
@@ -112,7 +113,7 @@ export function useFileExplain({
       setFileLines(file.status === 'added' ? linesFromAddedFile(file) : null);
       return;
     }
-    if (!hasBlobRef || !explainStatus?.enabled) {
+    if (!hasBlobRef || !aiSettings.apiKey) {
       setFileLines(null);
       return;
     }
@@ -137,7 +138,7 @@ export function useFileExplain({
     return () => {
       cancelled = true;
     };
-  }, [file, targetCommitish, hasBlobRef, explainStatus]);
+  }, [file, targetCommitish, hasBlobRef, aiSettings.apiKey]);
 
   const ensureFileLines = useCallback(async (): Promise<string[]> => {
     if (fileLines !== null) {
@@ -162,11 +163,8 @@ export function useFileExplain({
     if (isContentUnavailable) {
       return "Could not load this file's current content";
     }
-    if (!explainStatus) {
-      return 'Explain needs the diffops server — it is offline or not serving this app';
-    }
-    if (!explainStatus.enabled) {
-      return 'Set the AI_GATEWAY_API_KEY environment variable to enable AI explanations';
+    if (!aiSettings.apiKey) {
+      return 'Add an AI Gateway API key in Settings to enable AI explanations';
     }
     if (fileLines === null) {
       // Content is still loading; the request itself waits for it.
@@ -184,7 +182,7 @@ export function useFileExplain({
       return 'File is too large to explain in a single request';
     }
     return undefined;
-  }, [file, hasBlobRef, isContentUnavailable, explainStatus, fileLines]);
+  }, [file, hasBlobRef, isContentUnavailable, aiSettings.apiKey, fileLines]);
 
   const explanationQuery = useMemo(() => {
     if (!sessionQueryString) {
@@ -247,32 +245,23 @@ export function useFileExplain({
     [explanationQuery, fingerprint],
   );
 
-  const postExplainRequest = useCallback(
+  // The AI SDK loads only once a user actually asks for an explanation.
+  const requestFileExplanation = useCallback(
     async (
       prompt: string,
       candidateFiles: string[],
       signal: AbortSignal,
     ): Promise<FileExplanation> => {
-      const response = await fetch('/ai-gateway/explain', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, candidateFiles }),
+      const { generateFileExplanation } = await import('../services/aiGateway');
+      return generateFileExplanation({
+        prompt,
+        candidateFiles,
+        model: aiSettings.explainModel,
+        apiKey: aiSettings.apiKey,
         signal,
       });
-      const data = (await response.json().catch(() => null)) as {
-        explanation?: unknown;
-        error?: unknown;
-      } | null;
-      if (!response.ok || !isFileExplanation(data?.explanation)) {
-        throw new Error(
-          typeof data?.error === 'string'
-            ? data.error
-            : `Explain request failed (${response.status})`,
-        );
-      }
-      return data.explanation;
     },
-    [],
+    [aiSettings.explainModel, aiSettings.apiKey],
   );
 
   const requestExplain = useCallback(async () => {
@@ -300,7 +289,7 @@ export function useFileExplain({
         throw new Error('File is too large to explain in a single request');
       }
 
-      const explanation = await postExplainRequest(prompt, candidateFiles, controller.signal);
+      const explanation = await requestFileExplanation(prompt, candidateFiles, controller.signal);
       setState({ phase: 'loaded', explanation, errorMessage: '' });
       persistExplanation(explanation, []);
     } catch (error) {
@@ -317,7 +306,7 @@ export function useFileExplain({
         abortControllerRef.current = null;
       }
     }
-  }, [file.path, targetCommitish, ensureFileLines, postExplainRequest, persistExplanation]);
+  }, [file.path, targetCommitish, ensureFileLines, requestFileExplanation, persistExplanation]);
 
   const requestedFiles = useMemo(
     () => (state.phase === 'loaded' ? (state.explanation?.additionalFilesNeeded ?? []) : []),
@@ -389,7 +378,7 @@ export function useFileExplain({
         supportingFiles,
       });
       // The final round sends no candidates, so the answer cannot request more files.
-      const explanation = await postExplainRequest(prompt, [], controller.signal);
+      const explanation = await requestFileExplanation(prompt, [], controller.signal);
       setState({ phase: 'loaded', explanation, errorMessage: '' });
       persistExplanation(
         explanation,
@@ -408,7 +397,7 @@ export function useFileExplain({
         abortControllerRef.current = null;
       }
     }
-  }, [reaskState, fileLines, file.path, postExplainRequest, persistExplanation]);
+  }, [reaskState, fileLines, file.path, requestFileExplanation, persistExplanation]);
 
   const toggleExplain = useCallback(() => {
     if (disabledReason) {

@@ -111,16 +111,16 @@ describe('installLocalApiBridge', () => {
     await expect(lineCount.json()).resolves.toEqual({ oldLineCount: 0, newLineCount: 0 });
   });
 
-  it('passes /ai-gateway requests through to the real network', async () => {
-    const gatewayResponse = new Response(JSON.stringify({ enabled: true, model: 'm' }));
-    const networkFetch = vi.fn(() => Promise.resolve(gatewayResponse));
+  it('passes requests it does not answer through to the real network', async () => {
+    const passthroughResponse = new Response('ok');
+    const networkFetch = vi.fn(() => Promise.resolve(passthroughResponse));
     const originalFetch = global.fetch;
     global.fetch = networkFetch as unknown as typeof fetch;
     try {
       install();
 
-      await expect(fetch('/ai-gateway/status')).resolves.toBe(gatewayResponse);
-      expect(networkFetch).toHaveBeenCalledWith('/ai-gateway/status', undefined);
+      await expect(fetch('/manifest.webmanifest')).resolves.toBe(passthroughResponse);
+      expect(networkFetch).toHaveBeenCalledWith('/manifest.webmanifest', undefined);
     } finally {
       global.fetch = originalFetch;
     }

@@ -23,16 +23,21 @@ interface HastNode {
 const isWhitespaceOnlyText = (node: HastNode): boolean =>
   node.type === 'text' && node.value?.trim() === '';
 
-// react-markdown emits whitespace-only text nodes between a list item's block
-// children (between the item's text and a nested list); li renders with
-// whitespace-pre-wrap, so those structural separators would show as blank
-// lines. Dropping them mirrors normal white-space collapsing.
-const rehypeTightenListItems = () => (tree: HastNode) => {
+// react-markdown emits whitespace-only text nodes between list siblings —
+// between items, and between an item's text and a nested list. List items
+// render with whitespace-pre-wrap and white-space inherits, so those
+// structural separators render as blank lines at every nesting level under a
+// list item. Dropping them mirrors normal white-space collapsing; text
+// directly inside ul/ol is never content.
+const rehypeTightenLists = () => (tree: HastNode) => {
   const walk = (node: HastNode): void => {
     for (const child of node.children ?? []) {
       walk(child);
     }
-    if (node.tagName === 'li' && node.children !== undefined) {
+    if (
+      (node.tagName === 'li' || node.tagName === 'ul' || node.tagName === 'ol') &&
+      node.children !== undefined
+    ) {
       node.children = node.children.filter((child) => !isWhitespaceOnlyText(child));
     }
   };
@@ -40,7 +45,7 @@ const rehypeTightenListItems = () => (tree: HastNode) => {
   return tree;
 };
 
-const COMMENT_REHYPE_PLUGINS = [rehypeTightenListItems];
+const COMMENT_REHYPE_PLUGINS = [rehypeTightenLists];
 
 const transformCommentUrl = (url: string) => (isSafeUrl(url) ? url : '');
 

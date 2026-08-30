@@ -5,13 +5,13 @@ import {
   type FileViewMode,
   type DiffSide,
   type CommentThread,
-  type ExplainStatusResponse,
   type LineNumber,
 } from '../../types/diff';
 import { DEFAULT_FILE_VIEW_MODE } from '../../utils/diffMode';
 import { FileLevelTokensProvider } from '../contexts/FileLevelTokensContext';
 import { type CursorPosition } from '../hooks/keyboardNavigation';
 import { type MergedChunk } from '../hooks/useExpandedLines';
+import type { AiSettings } from '../hooks/useAiSettings';
 import { useFileExplain } from '../hooks/useFileExplain';
 import { useFileLevelTokens } from '../hooks/useFileLevelTokens';
 import { useViewport } from '../hooks/useViewport';
@@ -38,7 +38,7 @@ interface DiffViewerProps {
   onToggleCollapsed: (path: string) => void;
   onToggleAllCollapsed: (shouldCollapse: boolean) => void;
   commitLabel?: string;
-  explainStatus?: ExplainStatusResponse | null;
+  aiSettings: AiSettings;
   /** Comment-session query string backing whole-file explanation persistence. */
   explainSessionQueryString?: string | null;
   onAddComment: (
@@ -199,7 +199,7 @@ export const DiffViewer = memo(function DiffViewer({
   onToggleCollapsed,
   onToggleAllCollapsed,
   commitLabel,
-  explainStatus,
+  aiSettings,
   explainSessionQueryString,
   onAddComment,
   onGenerateThreadPrompt,
@@ -234,7 +234,7 @@ export const DiffViewer = memo(function DiffViewer({
     file,
     commitLabel,
     targetCommitish,
-    explainStatus,
+    aiSettings,
     sessionQueryString: explainSessionQueryString ?? null,
   });
 

@@ -20,7 +20,7 @@ export default defineConfig({
   },
   webServer: {
     command:
-      'bun scripts/build-pwa.mjs && bun scripts/make-engine-fixture-repo.mjs dist/pwa/fixture && bun src/server/serve.ts',
+      'bun scripts/build.ts && bun scripts/make-engine-fixture-repo.mjs dist/pwa/fixture && bun src/server/serve.ts',
     url: 'http://localhost:4173',
     reuseExistingServer: !process.env.CI,
     timeout: 240_000,

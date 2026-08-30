@@ -1,12 +1,9 @@
 {
   "workspaces": {
     ".": {
-      "entry": [
-        "src/standalone/styles/standalone.css",
-        "src/server/embeddedServer.ts",
-        "scripts/*.mjs"
-      ],
-      "ignore": ["src/standalone/gitEngine/vendor/**"]
+      "entry": ["src/standalone/styles/standalone.css", "scripts/*.{ts,mjs}"],
+      "ignore": ["src/standalone/gitEngine/vendor/**"],
+      "ignoreDependencies": ["@tailwindcss/cli"]
     }
   }
 }

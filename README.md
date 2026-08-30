@@ -17,3 +17,7 @@ bun install
 bun run build
 bun run serve
 ```
+
+The built app is fully static — the server only hands out files. Explain and
+Narrated review call [Vercel's AI Gateway](https://vercel.com/docs/ai-gateway)
+from the browser; add your API key under **Settings → AI** to turn them on.

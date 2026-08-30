@@ -2,6 +2,7 @@ import { Settings, X } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useHotkeysContext } from 'react-hotkeys-hook';
 
+import { DEFAULT_AI_SETTINGS, type AiSettings } from '../hooks/useAiSettings';
 import type { ColorVisionMode } from '../utils/appearanceTheme';
 import { formatAutoViewedPatterns, parseAutoViewedPatterns } from '../utils/autoViewedPatterns';
 import {
@@ -25,9 +26,11 @@ interface SettingsModalProps {
   onClose: () => void;
   settings: AppearanceSettings;
   onSettingsChange: (settings: AppearanceSettings) => void;
+  aiSettings: AiSettings;
+  onAiSettingsChange: (settings: AiSettings) => void;
 }
 
-type SettingsSection = 'appearance' | 'system';
+type SettingsSection = 'appearance' | 'system' | 'ai';
 
 const DEFAULT_SETTINGS: AppearanceSettings = {
   fontSize: 14,
@@ -60,6 +63,32 @@ const COLOR_VISION_MODES = [
   },
 ] as const;
 
+const AI_MODEL_FIELDS = [
+  {
+    key: 'explainModel',
+    inputId: 'ai-explain-model',
+    label: 'Explain Model',
+    description: 'Outlines a whole file when you press Explain.',
+  },
+  {
+    key: 'narrateModel',
+    inputId: 'ai-narrate-model',
+    label: 'Narrate Model',
+    description: 'Orders and narrates the whole changeset for a guided review.',
+  },
+] as const satisfies readonly {
+  key: 'explainModel' | 'narrateModel';
+  inputId: string;
+  label: string;
+  description: string;
+}[];
+
+const RESET_LABELS_BY_SECTION: Record<SettingsSection, string> = {
+  appearance: 'Reset Appearance Defaults',
+  system: 'Reset System Defaults',
+  ai: 'Reset AI Defaults',
+};
+
 const SETTINGS_SECTIONS = [
   {
     id: 'appearance',
@@ -69,9 +98,20 @@ const SETTINGS_SECTIONS = [
     id: 'system',
     label: 'System',
   },
+  {
+    id: 'ai',
+    label: 'AI',
+  },
 ] as const;
 
-export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: SettingsModalProps) {
+export function SettingsModal({
+  isOpen,
+  onClose,
+  settings,
+  onSettingsChange,
+  aiSettings,
+  onAiSettingsChange,
+}: SettingsModalProps) {
   const [autoViewedPatternsInput, setAutoViewedPatternsInput] = useState(
     formatAutoViewedPatterns(settings.autoViewedPatterns),
   );
@@ -133,6 +173,15 @@ export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: S
   };
 
   const handleReset = () => {
+    if (activeSection === 'ai') {
+      // The key is the user's own credential, not a default to restore.
+      onAiSettingsChange({
+        ...aiSettings,
+        explainModel: DEFAULT_AI_SETTINGS.explainModel,
+        narrateModel: DEFAULT_AI_SETTINGS.narrateModel,
+      });
+      return;
+    }
     if (activeSection === 'appearance') {
       onSettingsChange({
         ...settings,
@@ -354,6 +403,57 @@ export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: S
                 </div>
               </div>
             )}
+
+            {activeSection === 'ai' && (
+              <div className="space-y-6">
+                <div>
+                  <label
+                    htmlFor="ai-gateway-api-key"
+                    className="block text-sm font-medium text-github-text-primary mb-2"
+                  >
+                    AI Gateway API Key
+                  </label>
+                  <p className="text-sm text-github-text-secondary mb-2">
+                    Enables Explain and Narrated review. Stored in this browser&apos;s local storage
+                    and sent directly to ai-gateway.vercel.sh — anyone with access to this browser
+                    profile can read it.
+                  </p>
+                  <input
+                    id="ai-gateway-api-key"
+                    type="password"
+                    autoComplete="off"
+                    spellCheck={false}
+                    value={aiSettings.apiKey}
+                    onChange={(e) => onAiSettingsChange({ ...aiSettings, apiKey: e.target.value })}
+                    placeholder="vck_…"
+                    className="w-full p-2 bg-github-bg-tertiary border border-github-border rounded text-github-text-primary text-sm font-mono"
+                  />
+                </div>
+
+                {AI_MODEL_FIELDS.map((field) => (
+                  <div key={field.key}>
+                    <label
+                      htmlFor={field.inputId}
+                      className="block text-sm font-medium text-github-text-primary mb-2"
+                    >
+                      {field.label}
+                    </label>
+                    <p className="text-sm text-github-text-secondary mb-2">{field.description}</p>
+                    <input
+                      id={field.inputId}
+                      type="text"
+                      spellCheck={false}
+                      value={aiSettings[field.key]}
+                      onChange={(e) =>
+                        onAiSettingsChange({ ...aiSettings, [field.key]: e.target.value })
+                      }
+                      placeholder={DEFAULT_AI_SETTINGS[field.key]}
+                      className="w-full p-2 bg-github-bg-tertiary border border-github-border rounded text-github-text-primary text-sm font-mono"
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -362,7 +462,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: S
             onClick={handleReset}
             className="px-3 py-2 text-sm text-github-text-secondary hover:text-github-text-primary"
           >
-            {activeSection === 'appearance' ? 'Reset Appearance Defaults' : 'Reset System Defaults'}
+            {RESET_LABELS_BY_SECTION[activeSection]}
           </button>
           <button
             onClick={onClose}

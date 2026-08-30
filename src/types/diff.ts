@@ -73,13 +73,6 @@ export interface GeneratedStatusResponse {
   source: 'path' | 'content';
 }
 
-export interface ExplainStatusResponse {
-  enabled: boolean;
-  model: string;
-  /** Names the model that would narrate; absent on servers predating narration. */
-  narrateModel?: string;
-}
-
 /** One narration card: the file's narrative; card order is the review order. */
 interface NarrationCard {
   path: string;

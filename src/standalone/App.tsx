@@ -8,7 +8,6 @@ import {
   type DiffSelection,
   type DiffViewMode,
   type DiffSide,
-  type ExplainStatusResponse,
   type FileViewMode,
   type LineNumber,
   type CommentThread,
@@ -48,6 +47,7 @@ import { useDiffComments } from './hooks/useDiffComments';
 import { useExpandedLines, type MergedChunk } from './hooks/useExpandedLines';
 import { useKeyboardNavigation } from './hooks/useKeyboardNavigation';
 import { useLazyDiffRendering } from './hooks/useLazyDiffRendering';
+import { useAiSettings } from './hooks/useAiSettings';
 import { useNarration } from './hooks/useNarration';
 import { useViewedFiles } from './hooks/useViewedFiles';
 import { useViewport } from './hooks/useViewport';
@@ -161,9 +161,6 @@ function App() {
   const diffScrollContainerRef = useRef<HTMLElement | null>(null);
 
   const [revisionOptions, setRevisionOptions] = useState<RevisionsResponse | null>(null);
-  // Gateway availability reported by the diffops server; static hosting or a
-  // missing key leaves explain and narration off.
-  const [explainStatus, setExplainStatus] = useState<ExplainStatusResponse | null>(null);
   const [selectedRevision, setSelectedRevision] = useState<DiffSelection>(
     createDiffSelection('', ''),
   );
@@ -196,6 +193,7 @@ function App() {
   }, [resolvedSelection]);
 
   const { settings, updateSettings } = useAppearanceSettings();
+  const { settings: aiSettings, updateSettings: updateAiSettings } = useAiSettings();
   const { isMobile, isDesktop } = useViewport();
 
   const {
@@ -264,7 +262,7 @@ function App() {
     files: diffData?.files ?? EMPTY_DIFF_FILES,
     commitLabel: diffData?.commit ?? '',
     sessionQueryString: commentSessionQueryString,
-    gatewayStatus: explainStatus,
+    aiSettings,
   });
   const isNarrationActive = narration.isNarratedView && narration.narration !== null;
 
@@ -1024,23 +1022,6 @@ function App() {
       .catch(() => setRevisionOptions(null));
   }, []);
 
-  // Probing the server's gateway; static hosting or offline leaves the AI
-  // features disabled with their own reasons.
-  useEffect(() => {
-    fetch('/ai-gateway/status')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: ExplainStatusResponse | null) => {
-        if (data && typeof data.model === 'string') {
-          setExplainStatus({
-            enabled: data.enabled === true,
-            model: data.model,
-            narrateModel: typeof data.narrateModel === 'string' ? data.narrateModel : undefined,
-          });
-        }
-      })
-      .catch(() => setExplainStatus(null));
-  }, []);
-
   const handleRevisionChange = useCallback(
     async (nextSelection: DiffSelection) => {
       if (diffSelectionsEqual(nextSelection, selectedRevision)) return;
@@ -1611,7 +1592,7 @@ function App() {
                         onToggleCollapsed={toggleFileCollapsed}
                         onToggleAllCollapsed={toggleAllFilesCollapsed}
                         commitLabel={diffData.commit}
-                        explainStatus={explainStatus}
+                        aiSettings={aiSettings}
                         explainSessionQueryString={commentSessionQueryString}
                         onAddComment={handleAddComment}
                         onGenerateThreadPrompt={handleGenerateThreadPrompt}
@@ -1694,6 +1675,8 @@ function App() {
             onClose={() => setIsSettingsOpen(false)}
             settings={settings}
             onSettingsChange={updateSettings}
+            aiSettings={aiSettings}
+            onAiSettingsChange={updateAiSettings}
           />
         )}
 

@@ -141,10 +141,10 @@ describe('CommentBodyRenderer', () => {
     expect(container).toHaveTextContent('new code');
   });
 
-  it('renders no blank spacer lines inside list items with nested lists', () => {
-    // list items render with whitespace-pre-wrap, so any whitespace-only text
-    // node react-markdown leaves between an item and its nested list would
-    // show as a blank line.
+  it('renders no blank spacer lines in lists with nested lists', () => {
+    // list items render with whitespace-pre-wrap and white-space inherits, so
+    // any whitespace-only text node react-markdown leaves between list
+    // siblings — at the outer or the nested level — would show as a blank line.
     const { container } = render(
       <CommentBodyRenderer
         body={
@@ -155,13 +155,13 @@ describe('CommentBodyRenderer', () => {
 
     const listItems = container.querySelectorAll('li');
     expect(listItems).toHaveLength(4);
-    for (const listItem of listItems) {
-      const spacerNodes = Array.from(listItem.childNodes).filter(
-        (node) => node.nodeType === Node.TEXT_NODE && node.textContent?.trim() === '',
-      );
-      expect(spacerNodes).toHaveLength(0);
+    const lists = container.querySelectorAll('ul');
+    expect(lists).toHaveLength(2);
+
+    const spacerFreeNodes = [...listItems, ...lists].flatMap((node) => Array.from(node.childNodes));
+    for (const node of spacerFreeNodes) {
+      expect(node.nodeType === Node.TEXT_NODE && node.textContent?.trim() === '').toBe(false);
     }
-    expect(listItems[0]).toHaveTextContent('In: samples');
-    expect(listItems[0]).toHaveTextContent('Out: beats');
+    expect(lists[1]).toHaveTextContent('In: samplesOut: beats');
   });
 });

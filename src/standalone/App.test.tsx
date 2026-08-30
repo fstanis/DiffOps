@@ -4,14 +4,29 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'bun:test';
 import '@testing-library/jest-dom';
 
 import { mockFetch } from '../testing/preload';
-import type { DiffCommentThread, DiffFile, DiffResponse } from '../types/diff';
+import type { DiffCommentThread, DiffFile, DiffResponse, Narration } from '../types/diff';
 
 import App from './App';
 import type { BridgeEvent } from './bridgeEvents';
 import { useDiffComments } from './hooks/useDiffComments';
 import { useViewedFiles } from './hooks/useViewedFiles';
 import { useViewport } from './hooks/useViewport';
+import { DEFAULT_AI_SETTINGS } from './hooks/useAiSettings';
 import { buildChangesetFingerprint } from './utils/narrationFingerprint';
+
+// The AI gateway is the app's only outbound network call; everything else the
+// app fetches goes through the global fetch mock.
+const generateNarration = vi.fn<() => Promise<Narration>>();
+const generateFileExplanation = vi.fn();
+vi.mock('./services/aiGateway', () => ({ generateNarration, generateFileExplanation }));
+
+/** Seeds the API key the AI features gate on, as Settings would. */
+const enableAiSettings = () => {
+  window.localStorage.setItem(
+    'diffops-ai-settings',
+    JSON.stringify({ ...DEFAULT_AI_SETTINGS, apiKey: 'test-key' }),
+  );
+};
 
 // Mock the useViewport hook
 vi.mock('./hooks/useViewport', () => ({
@@ -131,6 +146,8 @@ const renderApp = () => {
 
 beforeEach(() => {
   window.localStorage.clear();
+  generateNarration.mockReset();
+  generateFileExplanation.mockReset();
   vi.unstubAllEnvs();
   mockViewedFiles = new Set<string>();
   mockHasLoadedInitialViewedFiles = true;
@@ -167,7 +184,8 @@ describe('App Component - Clear Comments Functionality', () => {
     mockFetch(mockDiffResponse);
   });
 
-  it('fetches AI explain availability on mount and enables the per-file Explain button', async () => {
+  it('enables the per-file Explain button once an API key is configured', async () => {
+    enableAiSettings();
     // An added file carries its whole content in the hunks, so explain can
     // gate on it without any blob fetch.
     const diffWithContent: DiffResponse = {
@@ -198,12 +216,6 @@ describe('App Component - Clear Comments Functionality', () => {
     const mockGlobalFetch = vi.mocked(global.fetch);
     mockGlobalFetch.mockImplementation((input) => {
       const url = String(input);
-      if (url.includes('/ai-gateway/status')) {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({ enabled: true, model: 'anthropic/claude-sonnet-5' }),
-        } as Response);
-      }
       if (url.includes('/api/revisions')) {
         return Promise.resolve({
           ok: true,
@@ -219,7 +231,6 @@ describe('App Component - Clear Comments Functionality', () => {
       name: 'Explain this file with AI',
     });
     expect(explainButton).toBeEnabled();
-    expect(mockGlobalFetch).toHaveBeenCalledWith('/ai-gateway/status');
   });
 
   describe('Copy All Prompt Button', () => {
@@ -1330,39 +1341,28 @@ describe('App Component - Narrated review', () => {
   };
 
   interface NarrationSessionOptions {
-    statusEnabled?: boolean;
+    hasApiKey?: boolean;
     diff?: DiffResponse;
     narration?: typeof narrationPayload;
     storedNarration?: { narration: typeof narrationPayload; fingerprint: string } | null;
-    narrateHandler?: () => Promise<unknown>;
+    narrateHandler?: () => Promise<Narration>;
   }
 
   const programNarrationFetch = (options: NarrationSessionOptions = {}) => {
+    if (options.hasApiKey ?? true) {
+      enableAiSettings();
+    }
+    generateNarration.mockImplementation(
+      options.narrateHandler ??
+        (() => Promise.resolve((options.narration ?? narrationPayload) as Narration)),
+    );
     vi.mocked(global.fetch).mockImplementation(((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.includes('/ai-gateway/status')) {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({
-            enabled: options.statusEnabled ?? true,
-            model: 'anthropic/claude-sonnet-5',
-            narrateModel: 'anthropic/claude-opus-5',
-          }),
-        } as Response);
-      }
       if (url.includes('/api/revisions')) {
         return Promise.resolve({
           ok: true,
           json: async () => ({ specialOptions: [], branches: [], commits: [] }),
         } as Response);
-      }
-      if (url.includes('/ai-gateway/narrate')) {
-        return options.narrateHandler
-          ? options.narrateHandler()
-          : Promise.resolve({
-              ok: true,
-              json: async () => ({ narration: options.narration ?? narrationPayload }),
-            } as Response);
       }
       if (url.includes('/api/narration') && (init?.method === 'PUT' || init?.method === 'POST')) {
         return Promise.resolve({ ok: true, json: async () => ({ success: true }) } as Response);
@@ -1485,10 +1485,7 @@ describe('App Component - Narrated review', () => {
       resolveNarrate = resolve;
     });
     programNarrationFetch({
-      narrateHandler: () =>
-        deferred.then(
-          () => ({ ok: true, json: async () => ({ narration: narrationPayload }) }) as Response,
-        ),
+      narrateHandler: () => deferred.then(() => narrationPayload as Narration),
     });
     renderApp();
 
@@ -1519,10 +1516,7 @@ describe('App Component - Narrated review', () => {
       expect(getDocumentFilePaths()).toEqual(['c.ts', 'a.ts', 'b.ts']);
     });
 
-    const narrateCalls = () =>
-      vi
-        .mocked(global.fetch)
-        .mock.calls.filter(([url]) => String(url).includes('/ai-gateway/narrate')).length;
+    const narrateCalls = () => generateNarration.mock.calls.length;
     expect(narrateCalls()).toBe(1);
 
     fireEvent.click(getToggle());
@@ -1553,10 +1547,7 @@ describe('App Component - Narrated review', () => {
     await waitFor(() => {
       expect(getDocumentFilePaths()).toEqual(['c.ts', 'a.ts', 'b.ts']);
     });
-    const instantCalls = vi
-      .mocked(global.fetch)
-      .mock.calls.filter(([url]) => String(url).includes('/ai-gateway/narrate')).length;
-    expect(instantCalls).toBe(0);
+    expect(generateNarration.mock.calls).toHaveLength(0);
   });
 
   it('regenerates a stale cached narration instead of applying it', async () => {
@@ -1571,10 +1562,7 @@ describe('App Component - Narrated review', () => {
     await waitFor(() => {
       expect(getDocumentFilePaths()).toEqual(['c.ts', 'a.ts', 'b.ts']);
     });
-    const narrateCalls = vi
-      .mocked(global.fetch)
-      .mock.calls.filter(([url]) => String(url).includes('/ai-gateway/narrate')).length;
-    expect(narrateCalls).toBe(1);
+    expect(generateNarration.mock.calls).toHaveLength(1);
   });
 
   it('navigates cross-reference links to the referenced file card', async () => {
@@ -1607,14 +1595,8 @@ describe('App Component - Narrated review', () => {
     programNarrationFetch({
       narrateHandler: () =>
         shouldFail
-          ? Promise.resolve({
-              ok: false,
-              json: async () => ({ error: 'Narration request failed (502)' }),
-            } as Response)
-          : Promise.resolve({
-              ok: true,
-              json: async () => ({ narration: narrationPayload }),
-            } as Response),
+          ? Promise.reject(new Error('Narration request failed (502)'))
+          : Promise.resolve(narrationPayload as Narration),
     });
     renderApp();
 
@@ -1632,27 +1614,15 @@ describe('App Component - Narrated review', () => {
     });
   });
 
-  it('disables the toggle with the server reason when the gateway is unreachable', async () => {
-    mockFetch(mockDiffResponse);
+  it('disables the toggle pointing at Settings when no API key is configured', async () => {
+    programNarrationFetch({ hasApiKey: false });
     renderApp();
 
     const toggle = await screen.findByRole('switch', { name: 'Toggle narrated view' });
     expect(toggle).toBeDisabled();
     expect(toggle).toHaveAttribute(
       'title',
-      'Narration needs the diffops server — it is offline or not serving this app',
-    );
-  });
-
-  it('disables the toggle with the API key reason when the gateway key is missing', async () => {
-    programNarrationFetch({ statusEnabled: false });
-    renderApp();
-
-    const toggle = await screen.findByRole('switch', { name: 'Toggle narrated view' });
-    expect(toggle).toBeDisabled();
-    expect(toggle).toHaveAttribute(
-      'title',
-      'Set the AI_GATEWAY_API_KEY environment variable to enable narration',
+      'Add an AI Gateway API key in Settings to enable narration',
     );
   });
 

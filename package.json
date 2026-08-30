@@ -20,9 +20,8 @@
   },
   "type": "module",
   "scripts": {
-    "dev": "bun scripts/dev-pwa.mjs",
-    "build": "bun scripts/build-pwa.mjs",
-    "build:serve": "bun scripts/build-diffops-serve.mjs",
+    "dev": "bun scripts/build.ts --watch",
+    "build": "bun scripts/build.ts",
     "fixture:engine": "bun scripts/make-engine-fixture-repo.mjs dist/pwa/fixture",
     "serve": "bun src/server/serve.ts",
     "typecheck": "tsc --noEmit",
@@ -56,7 +55,7 @@
   "devDependencies": {
     "@happy-dom/global-registrator": "^20.11.12",
     "@playwright/test": "^1.62.1",
-    "@tailwindcss/postcss": "^4.1.11",
+    "@tailwindcss/cli": "^4.1.11",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",
@@ -71,7 +70,6 @@
     "oxfmt": "^0.55.0",
     "oxlint": "^1.49.0",
     "oxlint-tsgolint": "^0.23.0",
-    "postcss": "^8.5.6",
     "tailwindcss": "^4.1.11",
     "typescript": "^6.0.0"
   },
