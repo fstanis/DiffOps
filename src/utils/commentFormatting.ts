@@ -20,9 +20,7 @@ function formatCommentLocation(file: string, line: number | number[], side?: Dif
 }
 
 function isNonRangeCommitish(commitish: string): boolean {
-  return (
-    commitish === 'working' || commitish === 'staged' || commitish === '.' || commitish === 'stdin'
-  );
+  return commitish === 'working' || commitish === 'staged' || commitish === '.';
 }
 
 function formatDiffContextHeader(context: CommentPromptDiffContext): string | null {

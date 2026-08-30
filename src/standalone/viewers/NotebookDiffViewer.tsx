@@ -478,8 +478,6 @@ const buildSourceLines = (text: string, type: PreviewLineType): NotebookSourceLi
   return [{ type, content: text }];
 };
 
-const isFetchableRef = (ref?: string) => Boolean(ref && ref !== 'stdin');
-
 const fetchNotebookContent = async (filePath: string, ref: string): Promise<string | null> => {
   const encodedPath = encodeURIComponent(filePath);
   const response = await fetch(`/api/blob/${encodedPath}?ref=${encodeURIComponent(ref)}`);
@@ -1005,10 +1003,9 @@ export function NotebookDiffViewer(props: DiffViewerBodyProps) {
       const targetRef = targetCommitish || 'HEAD';
       const oldPath = file.oldPath || file.path;
 
-      const canFetchOld = file.status !== 'added' && isFetchableRef(baseRef);
-      const canFetchNew = file.status !== 'deleted' && isFetchableRef(targetRef);
-      const canLoadFullPreview =
-        Boolean(previewSource && previewSourceKey) && isFetchableRef(previewSource?.ref);
+      const canFetchOld = file.status !== 'added';
+      const canFetchNew = file.status !== 'deleted';
+      const canLoadFullPreview = Boolean(previewSource && previewSourceKey);
 
       if (!canLoadFullPreview) {
         setFullPreviewCells(null);
@@ -1128,7 +1125,7 @@ export function NotebookDiffViewer(props: DiffViewerBodyProps) {
       return;
     }
 
-    if (!previewSource || !previewSourceKey || !isFetchableRef(previewSource.ref)) {
+    if (!previewSource || !previewSourceKey) {
       setFullPreviewCells(null);
       setLoadedFullPreviewKey(null);
       setFullPreviewError(null);

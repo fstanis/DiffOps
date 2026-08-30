@@ -46,7 +46,6 @@ vi.mock('./hooks/useDiffComments', () => ({
     updateComment: vi.fn(),
     updateMessage: vi.fn(),
     clearAllComments: mockClearAllComments,
-    applyCommentImports: mockApplyCommentImports,
     generatePrompt: vi.fn(),
     generateThreadPrompt: vi.fn(),
     generateAllCommentsPrompt: mockGenerateAllCommentsPrompt,
@@ -94,8 +93,10 @@ Object.defineProperty(window, 'confirm', {
 let mockComments: DiffCommentThread[] = [];
 const mockReplaceThreads = vi.fn();
 const mockClearAllComments = vi.fn();
-const mockApplyCommentImports = vi.fn(() => []);
 const mockGenerateAllCommentsPrompt = vi.fn(() => 'formatted prompt');
+
+// Per-file view modes are stored per repository; the mock diff carries no id, so they land under the default scope.
+const FILE_VIEW_MODES_KEY = 'diffops.fileViewModes:default';
 
 function createMockThread({
   id,
@@ -171,8 +172,6 @@ describe('App Component - Clear Comments Functionality', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockComments = [];
-    mockApplyCommentImports.mockReset();
-    mockApplyCommentImports.mockReturnValue([]);
     mockConfirm.mockReturnValue(false);
     mockFetch(mockDiffResponse);
   });
@@ -318,9 +317,7 @@ describe('App Component - Clear Comments Functionality', () => {
       renderApp();
 
       await waitFor(() => {
-        expect(mockClearAllComments).toHaveBeenCalledWith({
-          resetAppliedCommentImportIds: true,
-        });
+        expect(mockClearAllComments).toHaveBeenCalled();
       });
     });
 
@@ -497,9 +494,7 @@ describe('App Component - Clear Comments Functionality', () => {
       renderApp();
 
       await waitFor(() => {
-        expect(mockClearAllComments).toHaveBeenCalledWith({
-          resetAppliedCommentImportIds: true,
-        });
+        expect(mockClearAllComments).toHaveBeenCalled();
       });
 
       await waitFor(() => {
@@ -768,13 +763,13 @@ describe('App Component - Per-File View Modes', () => {
       'true',
     );
 
-    expect(JSON.parse(window.localStorage.getItem('diffops.fileViewModes') ?? '{}')).toEqual({
+    expect(JSON.parse(window.localStorage.getItem(FILE_VIEW_MODES_KEY) ?? '{}')).toEqual({
       'test.ts': 'split',
     });
   });
 
   it('initializes selections from localStorage', async () => {
-    window.localStorage.setItem('diffops.fileViewModes', JSON.stringify({ 'test.ts': 'full' }));
+    window.localStorage.setItem(FILE_VIEW_MODES_KEY, JSON.stringify({ 'test.ts': 'full' }));
     stubFetch();
     const { container } = renderApp();
 
@@ -788,7 +783,7 @@ describe('App Component - Per-File View Modes', () => {
 
   it('resets every file to split via the Reset button', async () => {
     window.localStorage.setItem(
-      'diffops.fileViewModes',
+      FILE_VIEW_MODES_KEY,
       JSON.stringify({ 'test.ts': 'full', 'docs/guide.md': 'diff-preview' }),
     );
     stubFetch();
@@ -807,27 +802,9 @@ describe('App Component - Per-File View Modes', () => {
       'true',
     );
 
-    expect(JSON.parse(window.localStorage.getItem('diffops.fileViewModes') ?? '{}')).toEqual({
+    expect(JSON.parse(window.localStorage.getItem(FILE_VIEW_MODES_KEY) ?? '{}')).toEqual({
       'test.ts': 'split',
       'docs/guide.md': 'split',
-    });
-  });
-
-  it('falls back to unified for stdin diffs without overwriting the stored preference', async () => {
-    window.localStorage.setItem('diffops.fileViewModes', JSON.stringify({ 'test.ts': 'full' }));
-    stubFetch({ ...twoFileDiffResponse, baseCommitish: 'stdin', targetCommitish: 'stdin' });
-    const { container } = renderApp();
-
-    const tsSection = await findFileSection(container, 'test.ts');
-
-    expect(within(tsSection).getByRole('button', { name: 'Full' })).toBeDisabled();
-    expect(within(tsSection).getByRole('button', { name: 'Unified' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
-
-    expect(JSON.parse(window.localStorage.getItem('diffops.fileViewModes') ?? '{}')).toEqual({
-      'test.ts': 'full',
     });
   });
 
@@ -854,7 +831,7 @@ describe('App Component - Per-File View Modes', () => {
       expect(diffCalls).toHaveLength(2);
     });
 
-    expect(JSON.parse(window.localStorage.getItem('diffops.fileViewModes') ?? '{}')).toEqual({
+    expect(JSON.parse(window.localStorage.getItem(FILE_VIEW_MODES_KEY) ?? '{}')).toEqual({
       'test.ts': 'split',
     });
   });

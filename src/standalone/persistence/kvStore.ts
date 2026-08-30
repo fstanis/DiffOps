@@ -64,8 +64,9 @@ const transactionToPromise = (transaction: IDBTransaction): Promise<void> =>
 
 export interface OpenKvStoreOptions {
   /**
-   * Database version; raise it when adding stores to an existing database so
-   * onupgradeneeded runs and creates the missing stores. Defaults to 1.
+   * Database version; raise it when the set of stores changes so
+   * onupgradeneeded runs, creating the missing stores and dropping — with
+   * their records — the ones no longer listed. Defaults to 1.
    */
   version?: number;
 }
@@ -90,6 +91,11 @@ export const openIndexedDbKvStore = (
     opening ??= new Promise<IDBDatabase>((resolve, reject) => {
       const request = indexedDB.open(databaseName, options.version ?? 1);
       request.onupgradeneeded = () => {
+        for (const storeName of Array.from(request.result.objectStoreNames)) {
+          if (!storeNames.includes(storeName)) {
+            request.result.deleteObjectStore(storeName);
+          }
+        }
         for (const storeName of storeNames) {
           if (!request.result.objectStoreNames.contains(storeName)) {
             request.result.createObjectStore(storeName);

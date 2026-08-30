@@ -1,18 +1,22 @@
 import type { FileViewMode } from '../types/diff.js';
 import { parseFileViewMode } from './diffMode.js';
 
-const FILE_VIEW_MODES_STORAGE_KEY = 'diffops.fileViewModes';
+const FILE_VIEW_MODES_STORAGE_PREFIX = 'diffops.fileViewModes';
 
 export type FileViewModesByPath = Record<string, FileViewMode>;
 
-/** Reads the persisted per-file view-mode selections, dropping unrecognized values. */
-export function loadFileViewModes(): FileViewModesByPath {
+// Scoped per repository so two repositories sharing a file path do not share its mode.
+const storageKey = (repositoryId: string): string =>
+  `${FILE_VIEW_MODES_STORAGE_PREFIX}:${repositoryId}`;
+
+/** Reads a repository's persisted per-file view modes, dropping unrecognized values. */
+export function loadFileViewModes(repositoryId: string): FileViewModesByPath {
   if (typeof window === 'undefined') {
     return {};
   }
 
   try {
-    const raw = window.localStorage.getItem(FILE_VIEW_MODES_STORAGE_KEY);
+    const raw = window.localStorage.getItem(storageKey(repositoryId));
     if (!raw) {
       return {};
     }
@@ -37,14 +41,14 @@ export function loadFileViewModes(): FileViewModesByPath {
   }
 }
 
-/** Persists the per-file view-mode selections; storage failures are ignored. */
-export function saveFileViewModes(modes: FileViewModesByPath): void {
+/** Persists a repository's per-file view modes; storage failures are ignored. */
+export function saveFileViewModes(repositoryId: string, modes: FileViewModesByPath): void {
   if (typeof window === 'undefined') {
     return;
   }
 
   try {
-    window.localStorage.setItem(FILE_VIEW_MODES_STORAGE_KEY, JSON.stringify(modes));
+    window.localStorage.setItem(storageKey(repositoryId), JSON.stringify(modes));
   } catch {
     // ignore
   }

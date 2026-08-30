@@ -7,7 +7,6 @@ import {
   type CommentThread,
   type LineNumber,
 } from '../../types/diff';
-import { DEFAULT_FILE_VIEW_MODE } from '../../utils/diffMode';
 import { FileLevelTokensProvider } from '../contexts/FileLevelTokensContext';
 import { type CursorPosition } from '../hooks/keyboardNavigation';
 import { type MergedChunk } from '../hooks/useExpandedLines';
@@ -18,6 +17,7 @@ import { useViewport } from '../hooks/useViewport';
 import { isWholeFileHighlightExtension } from '../utils/languageDetection';
 import { getViewerForFile } from '../viewers/registry';
 import type { DiffViewerBodyProps } from '../viewers/types';
+import { resolveFileViewMode } from '../viewers/viewModeOptions';
 
 import { DiffViewerHeader } from './DiffViewerHeader';
 import { ExplainButton } from './ExplainButton';
@@ -238,30 +238,12 @@ export const DiffViewer = memo(function DiffViewer({
   });
 
   const viewer = getViewerForFile(file);
-  const hasBlobContent = baseCommitish !== 'stdin' && targetCommitish !== 'stdin';
-  const canExpandHiddenLines = hasBlobContent && (viewer.canExpandHiddenLines?.(file) ?? false);
+  const canExpandHiddenLines = viewer.canExpandHiddenLines?.(file) ?? false;
   // Tokenizes the whole file so embedded blocks (e.g. <script>/<style>) are highlighted by their
   // own language instead of line-by-line, which can't see the surrounding context.
   const wholeFileHighlight = viewer.id === 'default' && isWholeFileHighlightExtension(file.path);
 
-  // "full" needs a new-file side, so it's unavailable for deleted files; previews exist only for
-  // the markdown and notebook viewers.
-  const isPreviewCapable = viewer.id === 'markdown' || viewer.id === 'notebook';
-  const supportsFullMode = file.status !== 'deleted';
-  const viewModeOptions: FileViewMode[] = [
-    'unified',
-    'split',
-    ...(supportsFullMode ? (['full'] as const) : []),
-    ...(isPreviewCapable ? (['diff-preview', 'full-preview'] as const) : []),
-  ];
-  // Split and full are unreadable at mobile widths, so only the previews stay selectable there.
-  const selectableModes = isMobile
-    ? viewModeOptions.filter((mode) => mode === 'diff-preview' || mode === 'full-preview')
-    : viewModeOptions;
-  // Full view and the full preview fetch blobs, which stdin diffs cannot serve.
-  const disabledModes = new Set<FileViewMode>(hasBlobContent ? [] : ['full', 'full-preview']);
-  const isModeSelectable = selectableModes.includes(viewMode) && !disabledModes.has(viewMode);
-  const resolvedViewMode: FileViewMode = isModeSelectable ? viewMode : DEFAULT_FILE_VIEW_MODE;
+  const { selectableModes, mode: resolvedViewMode } = resolveFileViewMode(file, viewMode, isMobile);
   const handleViewModeChange = useCallback(
     (mode: FileViewMode) => {
       onFileViewModeChange(file.path, mode);
@@ -437,7 +419,6 @@ export const DiffViewer = memo(function DiffViewer({
           <FileViewModeTabs
             viewMode={resolvedViewMode}
             options={selectableModes}
-            disabledOptions={disabledModes}
             onModeChange={handleViewModeChange}
           />
         </div>

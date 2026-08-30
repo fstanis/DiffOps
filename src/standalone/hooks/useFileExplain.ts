@@ -44,14 +44,6 @@ const INITIAL_EXPLAIN_STATE: FileExplainState = {
 
 const INITIAL_REASK_STATE: ReaskState = { supportingFiles: [], disabledReason: undefined };
 
-interface DiffFileModeWindow {
-  __DIFFOPS_DIFF_FILE_MODE__?: boolean;
-}
-
-const isDiffFileMode = () =>
-  typeof window !== 'undefined' &&
-  (window as Window & DiffFileModeWindow).__DIFFOPS_DIFF_FILE_MODE__ === true;
-
 const isAbortError = (error: unknown): boolean =>
   error instanceof Error && error.name === 'AbortError';
 
@@ -101,7 +93,7 @@ export function useFileExplain({
     [commitLabel, file],
   );
 
-  const hasBlobRef = Boolean(targetCommitish) && targetCommitish !== 'stdin';
+  const hasBlobRef = Boolean(targetCommitish);
 
   // Loads the file's whole content eagerly, only when an explanation could run — the same cached fetch the prompt itself needs.
   useEffect(() => {
@@ -156,7 +148,7 @@ export function useFileExplain({
     if (!hasExplainableDiffContent(file)) {
       return 'Nothing to explain — this file has no text content';
     }
-    if (!hasBlobRef || isDiffFileMode()) {
+    if (!hasBlobRef) {
       return 'Explain needs a repository — open a repository to explain files';
     }
     if (isContentUnavailable) {

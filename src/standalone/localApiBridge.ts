@@ -1,12 +1,7 @@
-import type { DiffCommentThread, DiffResponse, FileExplanation, Narration } from '../types/diff';
-import {
-  mergeCommentImports,
-  mergeCommentThreads,
-  normalizeCommentImports,
-} from '../utils/commentImports';
+import type { DiffCommentThread, FileExplanation, Narration } from '../types/diff';
+import { mergeCommentThreads } from '../utils/commentImports';
 
 import { broadcastBridgeEvent } from './bridgeEvents';
-import type { StandaloneDiffSource } from './diffFile';
 import type { RepositoryEngine } from './gitEngine/gitEngine';
 import type { WalkedFile } from './gitEngine/walkDirectory';
 import {
@@ -27,10 +22,6 @@ interface CommentSessionState {
   version: number;
 }
 
-interface DiffFileModeWindow {
-  __DIFFOPS_DIFF_FILE_MODE__?: boolean;
-}
-
 /** A repository whose git engine serves the repo-backed endpoints. */
 interface ActiveRepository {
   engine: RepositoryEngine;
@@ -38,19 +29,11 @@ interface ActiveRepository {
   repoName: string;
 }
 
-type ActiveSource =
-  | { kind: 'diff'; source: StandaloneDiffSource }
-  | { kind: 'repo'; repository: ActiveRepository };
-
 /** Handle on an installed local API bridge: feeds it data and uninstalls it. */
 export interface LocalApiBridge {
-  setDiff: (source: StandaloneDiffSource) => void;
   setRepository: (repository: ActiveRepository) => void;
-  clearActiveSource: () => void;
   /** Re-mounts freshly walked files, tells the viewer to refetch; resolves to mount warnings. */
   refreshRepository: (files: WalkedFile[]) => Promise<string[]>;
-  /** The comment-session query string for the active selection (export/import). */
-  getCommentQuery: () => string;
   restore: () => void;
 }
 
@@ -110,99 +93,26 @@ const parseThreadsPayload = (init: RequestInit | undefined): unknown => {
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
-// Deterministic per-payload hash for import ids; doesn't need to be cryptographically strong.
-const hashPayload = (payload: string): string => {
-  let hash = 5381;
-  for (let index = 0; index < payload.length; index += 1) {
-    hash = ((hash << 5) + hash + payload.charCodeAt(index)) | 0;
-  }
-  return (hash >>> 0).toString(16).padStart(8, '0');
-};
-
 /**
- * Installs the app's backend: intercepts the viewer's /api/* fetch traffic
- * and serves either an opened diff file or a wasm-git-backed repository,
- * persisting comments per diff in IndexedDB and settings in localStorage.
+ * Installs the app's backend: intercepts the viewer's /api/* fetch traffic and
+ * serves it from the wasm-git-backed repository, persisting comments per
+ * selection in IndexedDB and settings in localStorage.
  */
 export const installLocalApiBridge = (options: LocalApiBridgeOptions = {}): LocalApiBridge => {
   const originalFetch = window.fetch.bind(window);
   const originalSendBeacon = navigator.sendBeacon?.bind(navigator);
-  const diffFileModeWindow = window as Window & DiffFileModeWindow;
-  const wasDiffFileMode = diffFileModeWindow.__DIFFOPS_DIFF_FILE_MODE__;
 
   const store = options.store ?? getStandaloneStore();
-  let current: ActiveSource | null = null;
-  let lastCommentQuery: string | null = null;
+  let current: ActiveRepository | null = null;
   const sessions = new Map<string, CommentSessionState>();
-
-  // Tells the viewer the active source has no repository, disabling affordances that need blob or repository endpoints.
-  const setDiffFileMode = (isDiffFileMode: boolean): void => {
-    diffFileModeWindow.__DIFFOPS_DIFF_FILE_MODE__ = isDiffFileMode;
-  };
-  setDiffFileMode(true);
-
-  const activeRepository = (): ActiveRepository | null =>
-    current?.kind === 'repo' ? current.repository : null;
-
-  // "stdin" pseudo-refs carry the CLI stdin mode's degraded semantics.
-  const buildDiffPayload = (diff: DiffResponse, source: StandaloneDiffSource): DiffResponse => ({
-    ...diff,
-    baseCommitish: 'stdin',
-    targetCommitish: 'stdin',
-    requestedBaseCommitish: 'stdin',
-    requestedTargetCommitish: 'stdin',
-    repositoryId: source.repositoryId,
-  });
-
-  const activeRepositoryId = (): string =>
-    current?.kind === 'repo'
-      ? current.repository.repositoryId
-      : current?.kind === 'diff'
-        ? current.source.repositoryId
-        : 'default';
 
   const commentSessionKey = (requestUrl: URL): string =>
     buildCommentSessionKey(
-      activeRepositoryId(),
-      requestUrl.searchParams.get('base') ?? 'stdin',
-      requestUrl.searchParams.get('target') ?? 'stdin',
+      current?.repositoryId ?? 'default',
+      requestUrl.searchParams.get('base') ?? '',
+      requestUrl.searchParams.get('target') ?? '',
       requestUrl.searchParams.get('baseMode') ?? '',
     );
-
-  const rememberCommentQuery = (requestUrl: URL): void => {
-    const base = requestUrl.searchParams.get('base');
-    const target = requestUrl.searchParams.get('target');
-    if (base === null && target === null) {
-      return;
-    }
-    const params = new URLSearchParams();
-    if (base !== null) {
-      params.set('base', base);
-    }
-    if (target !== null) {
-      params.set('target', target);
-    }
-    if (requestUrl.searchParams.get('baseMode') === 'merge-base') {
-      params.set('baseMode', 'merge-base');
-    }
-    lastCommentQuery = params.toString();
-  };
-
-  const defaultCommentQuery = (): string => {
-    const repository = activeRepository();
-    if (!repository) {
-      return 'base=stdin&target=stdin';
-    }
-    const selection = repository.engine.currentSelection;
-    const params = new URLSearchParams({
-      base: selection.baseCommitish,
-      target: selection.targetCommitish,
-    });
-    if (selection.baseMode === 'merge-base') {
-      params.set('baseMode', 'merge-base');
-    }
-    return params.toString();
-  };
 
   const loadSession = async (key: string): Promise<CommentSessionState> => {
     const cached = sessions.get(key);
@@ -255,7 +165,7 @@ export const installLocalApiBridge = (options: LocalApiBridgeOptions = {}): Loca
     // A stale baseVersion means another writer changed comments; merge rather than overwrite (server parity).
     const isStale = typeof baseVersion === 'number' && baseVersion !== session.version;
     const resolvedThreads = isStale
-      ? mergeCommentThreads(session.threads, nextThreads).threads
+      ? mergeCommentThreads(session.threads, nextThreads)
       : nextThreads;
 
     const nextSession: CommentSessionState = {
@@ -276,58 +186,6 @@ export const installLocalApiBridge = (options: LocalApiBridgeOptions = {}): Loca
       merged: isStale,
       version: nextSession.version,
       threads: nextSession.threads,
-    });
-  };
-
-  // Accepts the CLI's CommentImport[] payload (server parity) and the app's own { threads } export, so an export round-trips into a fresh session.
-  const handleCommentImportsPost = async (
-    init: RequestInit | undefined,
-    key: string,
-  ): Promise<Response> => {
-    let payload: unknown;
-    try {
-      payload = parseThreadsPayload(init);
-    } catch {
-      return jsonResponse({ error: 'Invalid comment import data' }, 400);
-    }
-
-    const session = await loadSession(key);
-    let merged: { threads: DiffCommentThread[]; warnings: string[] };
-    let count: number;
-    let importId: string;
-
-    if (isPlainObject(payload) && Array.isArray(payload.threads)) {
-      const importedThreads = payload.threads as DiffCommentThread[];
-      merged = mergeCommentThreads(session.threads, importedThreads);
-      count = importedThreads.length;
-      importId = hashPayload(JSON.stringify(importedThreads));
-    } else {
-      try {
-        const commentImports = normalizeCommentImports(payload);
-        merged = mergeCommentImports(session.threads, commentImports);
-        count = commentImports.length;
-        importId = hashPayload(JSON.stringify(payload));
-      } catch {
-        return jsonResponse({ error: 'Invalid comment import data' }, 400);
-      }
-    }
-
-    const changed = JSON.stringify(session.threads) !== JSON.stringify(merged.threads);
-    const nextSession: CommentSessionState = {
-      threads: changed ? merged.threads : session.threads,
-      version: changed ? session.version + 1 : session.version,
-    };
-    if (changed) {
-      await persistSession(key, nextSession);
-      broadcastBridgeEvent({ type: 'commentsChanged' });
-    }
-
-    return jsonResponse({
-      success: true,
-      changed,
-      count,
-      importId,
-      warnings: merged.warnings,
     });
   };
 
@@ -562,61 +420,53 @@ export const installLocalApiBridge = (options: LocalApiBridgeOptions = {}): Loca
     }
   };
 
+  const noRepositoryResponse = (): Response =>
+    jsonResponse({ error: 'No repository is open in this window' }, 404);
+
   window.fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const requestUrl = extractUrl(input);
-    const repository = activeRepository();
+    const repository = current;
 
     if (requestUrl.pathname === '/api/diff') {
-      if (!current) {
-        return jsonResponse({ error: 'No diff file opened yet' }, 404);
+      if (!repository) {
+        return noRepositoryResponse();
       }
-      if (current.kind === 'repo') {
-        return handleRepoDiff(current.repository, requestUrl);
-      }
-      return jsonResponse(buildDiffPayload(current.source.diff, current.source));
+      return handleRepoDiff(repository, requestUrl);
     }
 
     if (requestUrl.pathname === '/api/revisions') {
-      if (repository) {
-        return jsonResponse(await repository.engine.revisions());
+      if (!repository) {
+        return noRepositoryResponse();
       }
-      return jsonResponse(
-        { error: 'Revision selection is not available without a repository' },
-        404,
-      );
+      return jsonResponse(await repository.engine.revisions());
     }
 
     if (requestUrl.pathname.startsWith('/api/line-count/')) {
-      if (repository) {
-        return handleRepoLineCount(repository, requestUrl.pathname, requestUrl);
+      if (!repository) {
+        return noRepositoryResponse();
       }
-      return jsonResponse({ oldLineCount: 0, newLineCount: 0 });
+      return handleRepoLineCount(repository, requestUrl.pathname, requestUrl);
     }
 
     if (requestUrl.pathname.startsWith('/api/blob/')) {
-      if (repository) {
-        return handleRepoBlob(repository, requestUrl.pathname, requestUrl);
+      if (!repository) {
+        return noRepositoryResponse();
       }
-      return jsonResponse({ error: 'Blob content is not available for an opened diff file' }, 404);
+      return handleRepoBlob(repository, requestUrl.pathname, requestUrl);
     }
 
     if (requestUrl.pathname.startsWith('/api/generated-status/')) {
-      if (repository) {
-        return handleRepoGeneratedStatus(repository, requestUrl.pathname, requestUrl);
+      if (!repository) {
+        return noRepositoryResponse();
       }
-      return jsonResponse(
-        { error: 'Generated status is not available for an opened diff file' },
-        404,
-      );
+      return handleRepoGeneratedStatus(repository, requestUrl.pathname, requestUrl);
     }
 
     if (requestUrl.pathname === '/api/comments' && init?.method !== 'GET') {
-      rememberCommentQuery(requestUrl);
       return handleCommentsPost(init, commentSessionKey(requestUrl));
     }
     const commentThreadMatch = requestUrl.pathname.match(/^\/api\/comments\/([^/]+)$/);
     if (commentThreadMatch && init?.method === 'DELETE') {
-      rememberCommentQuery(requestUrl);
       const threadId = decodeURIComponent(commentThreadMatch[1] ?? '');
       const key = commentSessionKey(requestUrl);
       const session = await loadSession(key);
@@ -640,17 +490,11 @@ export const installLocalApiBridge = (options: LocalApiBridgeOptions = {}): Loca
     }
 
     if (requestUrl.pathname === '/api/comments-json') {
-      rememberCommentQuery(requestUrl);
       const session = await loadSession(commentSessionKey(requestUrl));
       return jsonResponse({
         version: session.version,
         threads: session.threads,
       });
-    }
-
-    if (requestUrl.pathname === '/api/comment-imports' && init?.method === 'POST') {
-      rememberCommentQuery(requestUrl);
-      return handleCommentImportsPost(init, commentSessionKey(requestUrl));
     }
 
     if (requestUrl.pathname === '/api/narration') {
@@ -694,30 +538,17 @@ export const installLocalApiBridge = (options: LocalApiBridgeOptions = {}): Loca
   });
 
   return {
-    setDiff: (source: StandaloneDiffSource) => {
-      current = { kind: 'diff', source };
-      lastCommentQuery = null;
-      setDiffFileMode(true);
-    },
-    setRepository: (repositoryInput: ActiveRepository) => {
-      current = { kind: 'repo', repository: repositoryInput };
-      lastCommentQuery = null;
-      setDiffFileMode(false);
-    },
-    clearActiveSource: () => {
-      current = null;
-      lastCommentQuery = null;
+    setRepository: (repository: ActiveRepository) => {
+      current = repository;
     },
     refreshRepository: async (files: WalkedFile[]): Promise<string[]> => {
-      const repository = activeRepository();
-      if (!repository) {
+      if (!current) {
         return [];
       }
-      const warnings = await repository.engine.refresh(files);
+      const warnings = await current.engine.refresh(files);
       broadcastBridgeEvent({ type: 'reload' });
       return warnings;
     },
-    getCommentQuery: () => lastCommentQuery ?? defaultCommentQuery(),
     restore: () => {
       window.fetch = originalFetch;
       Object.defineProperty(navigator, 'sendBeacon', {
@@ -725,7 +556,6 @@ export const installLocalApiBridge = (options: LocalApiBridgeOptions = {}): Loca
         writable: true,
         value: originalSendBeacon,
       });
-      diffFileModeWindow.__DIFFOPS_DIFF_FILE_MODE__ = wasDiffFileMode;
     },
   };
 };

@@ -47,17 +47,11 @@ describe('FileViewModeTabs', () => {
     expect(onModeChange).toHaveBeenCalledWith('full');
   });
 
-  it('disables unavailable modes', () => {
-    render(
-      <FileViewModeTabs
-        viewMode="unified"
-        options={textFileOptions}
-        disabledOptions={new Set(['full'])}
-        onModeChange={vi.fn()}
-      />,
-    );
+  it('renders the single option an added file offers', () => {
+    render(<FileViewModeTabs viewMode="full" options={['full']} onModeChange={vi.fn()} />);
 
-    expect(screen.getByRole('button', { name: 'Full' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Split' })).toBeEnabled();
+    const tabs = screen.getAllByRole('button');
+    expect(tabs.map((button) => button.textContent)).toEqual(['Full']);
+    expect(tabs[0]).toHaveAttribute('aria-pressed', 'true');
   });
 });

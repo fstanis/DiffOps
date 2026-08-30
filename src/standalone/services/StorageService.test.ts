@@ -184,16 +184,24 @@ describe('StorageService - Repository Isolation', () => {
       expect(retrieved1[0]?.id).toBe('working-comment');
     });
 
-    it('preserves applied import ids when saving viewed files', () => {
+    it('preserves stored comment threads when saving viewed files', () => {
       service.saveDiffContextData('base', 'target', {
         version: 2,
         baseCommitish: 'base',
         targetCommitish: 'target',
         createdAt: '2024-01-01T00:00:00Z',
         lastModifiedAt: '2024-01-01T00:00:00Z',
-        threads: [],
+        threads: [
+          {
+            id: 'kept-thread',
+            filePath: 'file.ts',
+            createdAt: '2024-01-01T00:00:00Z',
+            updatedAt: '2024-01-01T00:00:00Z',
+            position: { side: 'new', line: 1 },
+            messages: [],
+          },
+        ],
         viewedFiles: [],
-        appliedCommentImportIds: ['import-bundle-1'],
       });
 
       service.saveViewedFiles('base', 'target', [
@@ -205,7 +213,7 @@ describe('StorageService - Repository Isolation', () => {
       ]);
 
       const data = service.getDiffContextData('base', 'target');
-      expect(data?.appliedCommentImportIds).toEqual(['import-bundle-1']);
+      expect(data?.threads.map((thread) => thread.id)).toEqual(['kept-thread']);
     });
 
     it('separates direct and merge-base diff contexts', () => {

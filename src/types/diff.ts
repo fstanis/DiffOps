@@ -62,8 +62,6 @@ export interface DiffResponse {
   requestedBaseMode?: BaseMode;
   clearComments?: boolean;
   repositoryId?: string;
-  commentImports?: CommentImport[];
-  commentImportId?: string;
 }
 
 export interface GeneratedStatusResponse {
@@ -160,27 +158,6 @@ export interface DiffCommentThread {
   messages: DiffCommentMessage[];
 }
 
-interface CommentImportBase {
-  id?: string;
-  filePath: string;
-  position: DiffCommentPosition;
-  body: string;
-  author?: string;
-  createdAt?: string;
-  updatedAt?: string;
-  codeSnapshot?: DiffCommentCodeSnapshot;
-}
-
-export interface ThreadCommentImport extends CommentImportBase {
-  type: 'thread';
-}
-
-export interface ReplyCommentImport extends CommentImportBase {
-  type: 'reply';
-}
-
-export type CommentImport = ThreadCommentImport | ReplyCommentImport;
-
 export interface ViewedFileRecord {
   filePath: string;
   viewedAt: string; // ISO 8601 format
@@ -221,7 +198,6 @@ export interface DiffContextStorage {
 
   threads: DiffCommentThread[];
   viewedFiles: ViewedFileRecord[];
-  appliedCommentImportIds: string[];
 }
 
 export interface CommentThread {

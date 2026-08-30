@@ -45,8 +45,6 @@ type FenceInfo = {
   raw: string;
 };
 
-const isFetchableRef = (ref?: string) => Boolean(ref && ref !== 'stdin');
-
 type PreviewSource = { path: string; ref: string } | null;
 
 type PreviewSourcePair = {
@@ -528,7 +526,7 @@ const MarkdownDiffPreview = ({
       return { view, stripBaseLines, stripTargetLines };
     }
 
-    // partial fetch failure or stdin — snapshot fallback with explanatory label.
+    // partial fetch failure — snapshot fallback with explanatory label.
     // The raw frontmatter lines are retained in the preview blocks.
     if (targetAvailable && targetData !== null) {
       return {
@@ -693,12 +691,8 @@ export function MarkdownDiffViewer(props: DiffViewerBodyProps) {
   }, [previewSources]);
 
   useEffect(() => {
-    const baseSource =
-      previewSources.base && isFetchableRef(previewSources.base.ref) ? previewSources.base : null;
-    const targetSource =
-      previewSources.target && isFetchableRef(previewSources.target.ref)
-        ? previewSources.target
-        : null;
+    const baseSource = previewSources.base;
+    const targetSource = previewSources.target;
 
     if (!previewSourcesKey || (!baseSource && !targetSource)) {
       setContents({ base: null, target: null });

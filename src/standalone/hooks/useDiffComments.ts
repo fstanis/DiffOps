@@ -2,9 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 
 import {
   type BaseMode,
-  type CommentImport,
   type CommentThread,
-  type DiffContextStorage,
   type DiffCommentThread,
   type DiffSide,
   type LegacyDiffComment,
@@ -15,7 +13,6 @@ import {
   formatAllCommentThreadsPrompt,
 } from '../../utils/commentFormatting';
 import { createId } from '../../utils/createId';
-import { mergeCommentImports } from '../../utils/commentImports';
 import { storageService } from '../services/StorageService';
 import { getLanguageFromPath } from '../utils/diffUtils';
 
@@ -45,8 +42,7 @@ interface UseDiffCommentsReturn {
   updateComment: (commentId: string, newBody: string) => void;
   removeMessage: (threadId: string, messageId: string) => void;
   updateMessage: (threadId: string, messageId: string, newBody: string) => void;
-  clearAllComments: (options?: { resetAppliedCommentImportIds?: boolean }) => void;
-  applyCommentImports: (imports: CommentImport[], importId: string) => string[];
+  clearAllComments: () => void;
   generatePrompt: (commentId: string) => string;
   generateThreadPrompt: (threadId: string) => string;
   generateAllCommentsPrompt: (context?: CommentPromptDiffContext) => string;
@@ -109,25 +105,6 @@ export function useDiffComments(
       baseMode,
     );
   }, [baseCommitish, targetCommitish, currentCommitHash, branchToHash, repositoryId, baseMode]);
-
-  const createEmptyDiffContext = useCallback((): DiffContextStorage | null => {
-    if (!baseCommitish || !targetCommitish) {
-      return null;
-    }
-
-    const now = new Date().toISOString();
-    return {
-      version: 2,
-      baseCommitish,
-      targetCommitish,
-      baseMode,
-      createdAt: now,
-      lastModifiedAt: now,
-      threads: [],
-      viewedFiles: [],
-      appliedCommentImportIds: [],
-    };
-  }, [baseCommitish, targetCommitish, baseMode]);
 
   useEffect(() => {
     if (!baseCommitish || !targetCommitish) {
@@ -332,95 +309,6 @@ export function useDiffComments(
     saveThreads([]);
   }, [saveThreads]);
 
-  const clearAllCommentsWithOptions = useCallback(
-    (options?: { resetAppliedCommentImportIds?: boolean }) => {
-      if (!options?.resetAppliedCommentImportIds) {
-        clearAllComments();
-        return;
-      }
-
-      const existingData = loadDiffContextData() || createEmptyDiffContext();
-      if (!existingData || !baseCommitish || !targetCommitish) {
-        return;
-      }
-
-      const nextData: DiffContextStorage = {
-        ...existingData,
-        threads: [],
-        appliedCommentImportIds: [],
-      };
-
-      storageService.saveDiffContextData(
-        baseCommitish,
-        targetCommitish,
-        nextData,
-        currentCommitHash,
-        branchToHash,
-        repositoryId,
-        baseMode,
-      );
-      setThreads([]);
-    },
-    [
-      baseCommitish,
-      targetCommitish,
-      branchToHash,
-      clearAllComments,
-      createEmptyDiffContext,
-      currentCommitHash,
-      loadDiffContextData,
-      repositoryId,
-      baseMode,
-    ],
-  );
-
-  const applyCommentImports = useCallback(
-    (imports: CommentImport[], importId: string): string[] => {
-      if (!baseCommitish || !targetCommitish || imports.length === 0 || importId.length === 0) {
-        return [];
-      }
-
-      const existingData = loadDiffContextData() || createEmptyDiffContext();
-      if (!existingData) {
-        return [];
-      }
-
-      if (existingData.appliedCommentImportIds.includes(importId)) {
-        setThreads(existingData.threads);
-        return [];
-      }
-
-      const merged = mergeCommentImports(existingData.threads, imports);
-      const nextData: DiffContextStorage = {
-        ...existingData,
-        threads: merged.threads,
-        appliedCommentImportIds: [...existingData.appliedCommentImportIds, importId],
-      };
-
-      storageService.saveDiffContextData(
-        baseCommitish,
-        targetCommitish,
-        nextData,
-        currentCommitHash,
-        branchToHash,
-        repositoryId,
-        baseMode,
-      );
-      setThreads(merged.threads);
-      return merged.warnings;
-    },
-    [
-      baseCommitish,
-      targetCommitish,
-      branchToHash,
-      createEmptyDiffContext,
-      currentCommitHash,
-      loadDiffContextData,
-      repositoryId,
-      baseMode,
-    ],
-  );
-
   const generateThreadPrompt = useCallback(
     (threadId: string): string => {
       const thread = threads.find((item) => item.id === threadId);
@@ -462,8 +350,7 @@ export function useDiffComments(
     updateComment,
     removeMessage,
     updateMessage,
-    clearAllComments: clearAllCommentsWithOptions,
-    applyCommentImports,
+    clearAllComments,
     generatePrompt,
     generateThreadPrompt,
     generateAllCommentsPrompt,

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'bun:test';
 
 import { type DiffFile, type FileExplanation } from '../../types/diff';
@@ -6,6 +6,7 @@ import { WordHighlightProvider } from '../contexts/WordHighlightContext';
 import type { MergedChunk } from '../hooks/useExpandedLines';
 import { DEFAULT_AI_SETTINGS } from '../hooks/useAiSettings';
 import type { FileExplanationRequest } from '../services/aiGateway';
+import { useViewport } from '../hooks/useViewport';
 import { buildFileExplanationFingerprint } from '../utils/explanationFingerprint';
 
 import { DiffViewer } from './DiffViewer';
@@ -14,6 +15,10 @@ import { DiffViewer } from './DiffViewer';
 const generateFileExplanation =
   vi.fn<(request: FileExplanationRequest) => Promise<FileExplanation>>();
 vi.mock('../services/aiGateway', () => ({ generateFileExplanation }));
+
+vi.mock('../hooks/useViewport', () => ({
+  useViewport: vi.fn(() => ({ isMobile: false, isDesktop: true })),
+}));
 
 // Each fixture gets its own path: the whole-file content cache is keyed by path, so distinct paths keep tests from sharing fetched content.
 const makeModifiedFile = (path = 'src/example.ts'): DiffFile => ({
@@ -85,6 +90,8 @@ const makeAddedFile = (path = 'src/fresh.ts'): DiffFile => ({
     },
   ],
 });
+
+const withPath = (file: DiffFile, path: string): DiffFile => ({ ...file, path });
 
 const makeFileContent = (lineCount: number, firstLines: string[] = []): string =>
   [
@@ -449,21 +456,6 @@ describe('DiffViewer explain feature', () => {
     expect(button).toBeDisabled();
   });
 
-  it('disables the button while only a diff file is open', () => {
-    const diffFileModeWindow = window as Window & { __DIFFOPS_DIFF_FILE_MODE__?: boolean };
-    diffFileModeWindow.__DIFFOPS_DIFF_FILE_MODE__ = true;
-    try {
-      renderViewer(makeModifiedFile('src/stdin.ts'));
-
-      const button = screen.getByTitle(
-        'Explain needs a repository — open a repository to explain files',
-      );
-      expect(button).toBeDisabled();
-    } finally {
-      delete diffFileModeWindow.__DIFFOPS_DIFF_FILE_MODE__;
-    }
-  });
-
   it('restores a persisted explanation for the matching fingerprint without a model call', async () => {
     const file = makeModifiedFile('src/restored.ts');
     const storedExplanation = structuredExplanation({ fileSummary: 'Restored summary.' });
@@ -536,5 +528,106 @@ describe('DiffViewer explain feature', () => {
     );
     expect(screen.getByText('Cached explanation.')).toBeInTheDocument();
     expect(explainRequests()).toHaveLength(1);
+  });
+});
+
+describe('DiffViewer view modes', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    generateFileExplanation.mockReset();
+    vi.mocked(global.fetch).mockImplementation((_input: RequestInfo | URL) => jsonResponse({}));
+    vi.mocked(useViewport).mockReturnValue({ isMobile: false, isDesktop: true });
+  });
+
+  const tabLabels = () =>
+    within(screen.getByRole('group', { name: 'File view mode' }))
+      .getAllByRole('button')
+      .map((button) => button.textContent);
+
+  const activeTab = () =>
+    within(screen.getByRole('group', { name: 'File view mode' }))
+      .getAllByRole('button')
+      .find((button) => button.getAttribute('aria-pressed') === 'true')?.textContent;
+
+  it('offers an added text file only Full, and still shows the tab strip', () => {
+    renderViewer(makeAddedFile());
+
+    expect(tabLabels()).toEqual(['Full']);
+    expect(activeTab()).toBe('Full');
+  });
+
+  it('opens an added file in the whole-file view rather than as a diff', () => {
+    const { container } = renderViewer(makeAddedFile('src/opened.ts'));
+
+    expect(container.querySelectorAll('[data-diff-line-row]').length).toBe(25);
+    expect(
+      Array.from(container.querySelectorAll('td span')).filter((span) => span.textContent === '+'),
+    ).toHaveLength(0);
+  });
+
+  it('offers an added markdown file exactly Full and Full Preview', () => {
+    renderViewer(withPath(makeAddedFile(), 'docs/guide.md'));
+
+    expect(tabLabels()).toEqual(['Full', 'Full Preview']);
+    expect(activeTab()).toBe('Full');
+  });
+
+  it('offers an added notebook the same two modes', () => {
+    renderViewer(withPath(makeAddedFile(), 'notebooks/run.ipynb'));
+
+    expect(tabLabels()).toEqual(['Full', 'Full Preview']);
+  });
+
+  it('leaves a modified text file with the full diff tab set', () => {
+    renderViewer(makeModifiedFile('src/modes.ts'));
+
+    expect(tabLabels()).toEqual(['Unified', 'Split', 'Full']);
+    expect(activeTab()).toBe('Unified');
+  });
+
+  it('leaves a modified markdown file with all five modes', () => {
+    renderViewer(makeModifiedFile('docs/modes.md'));
+
+    expect(tabLabels()).toEqual(['Unified', 'Split', 'Full', 'Diff Preview', 'Full Preview']);
+  });
+
+  it('leaves a deleted file without the whole-file modes', () => {
+    renderViewer(makeDeletedFile());
+
+    expect(tabLabels()).toEqual(['Unified', 'Split']);
+    expect(activeTab()).toBe('Unified');
+  });
+
+  it("falls back to the file's own default when the stored mode is not on offer", () => {
+    renderViewer(makeAddedFile('src/stored.ts'), { viewMode: 'split' });
+
+    expect(activeTab()).toBe('Full');
+  });
+
+  // The whole-file view renders the file's lines; only a diff view marks them with a +/- gutter.
+  const diffGutterMarkers = (container: HTMLElement) =>
+    Array.from(container.querySelectorAll('td span')).filter(
+      (span) => span.textContent === '+' || span.textContent === '-',
+    );
+
+  it('resolves an added file to Full at narrow widths', () => {
+    vi.mocked(useViewport).mockReturnValue({ isMobile: true, isDesktop: false });
+
+    const { container } = renderViewer(makeAddedFile('src/narrow-added.ts'));
+
+    expect(screen.queryByRole('group', { name: 'File view mode' })).not.toBeInTheDocument();
+    expect(container.querySelectorAll('[data-diff-line-row]').length).toBe(25);
+    expect(diffGutterMarkers(container)).toHaveLength(0);
+  });
+
+  it('resolves a modified text file to unified at narrow widths', () => {
+    vi.mocked(useViewport).mockReturnValue({ isMobile: true, isDesktop: false });
+
+    const { container } = renderViewer(makeModifiedFile('src/narrow-modified.ts'), {
+      viewMode: 'split',
+    });
+
+    expect(screen.queryByRole('group', { name: 'File view mode' })).not.toBeInTheDocument();
+    expect(diffGutterMarkers(container).map((marker) => marker.textContent)).toEqual(['-', '+']);
   });
 });

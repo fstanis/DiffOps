@@ -22,7 +22,7 @@ export function useCurrentFileContent(
     if (file.status === 'added') {
       return { lines: linesFromAddedFile(file), isLoading: false, error: null };
     }
-    if (!targetCommitish || targetCommitish === 'stdin') {
+    if (!targetCommitish) {
       return { lines: null, isLoading: false, error: 'Blob content is unavailable' };
     }
     const cached = getCachedCurrentFileLines(file);
@@ -40,7 +40,7 @@ export function useCurrentFileContent(
       return;
     }
 
-    if (!targetCommitish || targetCommitish === 'stdin') {
+    if (!targetCommitish) {
       setState({ lines: null, isLoading: false, error: 'Blob content is unavailable' });
       return;
     }

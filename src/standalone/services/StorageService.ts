@@ -183,7 +183,6 @@ export class StorageService {
           lastModifiedAt: parsed.lastModifiedAt,
           threads: parsed.comments.map(migrateLegacyComment),
           viewedFiles: parsed.viewedFiles,
-          appliedCommentImportIds: [],
         };
       }
 
@@ -250,7 +249,6 @@ export class StorageService {
         targetCommitish,
         baseMode,
         lastModifiedAt: new Date().toISOString(),
-        appliedCommentImportIds: data.appliedCommentImportIds || [],
       };
       localStorage.setItem(key, JSON.stringify(dataToSave));
     } catch (error) {
@@ -330,7 +328,6 @@ export class StorageService {
       lastModifiedAt: new Date().toISOString(),
       threads: [],
       viewedFiles: [],
-      appliedCommentImportIds: [],
     };
 
     data.threads = threads;
@@ -413,7 +410,6 @@ export class StorageService {
       lastModifiedAt: new Date().toISOString(),
       threads: [],
       viewedFiles: [],
-      appliedCommentImportIds: [],
     };
 
     data.viewedFiles = files;

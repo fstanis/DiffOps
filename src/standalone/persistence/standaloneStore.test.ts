@@ -28,19 +28,25 @@ const makeThread = (id: string): DiffCommentThread => ({
 
 const makeStore = () => new StandaloneStore(createMemoryKvStore());
 
+const makeHandle = (name: string): PickedDirectoryHandle => ({
+  kind: 'directory',
+  name,
+  async *entries() {},
+});
+
 describe('StandaloneStore', () => {
   beforeEach(() => {
     resetStandaloneStoreForTests();
   });
 
   it('builds comment session keys from repository and refs', () => {
-    expect(buildCommentSessionKey('repo', 'stdin', 'stdin')).toBe('repo|stdin|stdin|');
+    expect(buildCommentSessionKey('repo', 'HEAD', '.')).toBe('repo|HEAD|.|');
     expect(buildCommentSessionKey('repo', 'a', 'b', 'merge-base')).toBe('repo|a|b|merge-base');
   });
 
   it('round-trips comment sessions', async () => {
     const store = makeStore();
-    const key = buildCommentSessionKey('standalone-test', 'stdin', 'stdin');
+    const key = buildCommentSessionKey('repo-abc123', 'HEAD', '.');
 
     await expect(store.loadCommentSession(key)).resolves.toBeUndefined();
 
@@ -55,7 +61,7 @@ describe('StandaloneStore', () => {
 
   it('round-trips narrations under their own session key', async () => {
     const store = makeStore();
-    const key = buildCommentSessionKey('standalone-test', 'stdin', 'stdin');
+    const key = buildCommentSessionKey('repo-abc123', 'HEAD', '.');
 
     await expect(store.loadNarration(key)).resolves.toBeUndefined();
 
@@ -72,95 +78,42 @@ describe('StandaloneStore', () => {
       updatedAt: expect.any(String) as string,
     });
     await expect(
-      store.loadNarration(buildCommentSessionKey('standalone-other', 'stdin', 'stdin')),
+      store.loadNarration(buildCommentSessionKey('repo-other', 'HEAD', '.')),
     ).resolves.toBeUndefined();
   });
 
-  it('counts comment threads across a repository\u2019s sessions only', async () => {
+  it('lists registered repositories by folder name', async () => {
     const store = makeStore();
-    const repositoryId = 'standalone-test';
 
-    await store.saveCommentSession(
-      buildCommentSessionKey(repositoryId, 'stdin', 'stdin'),
-      [makeThread('a'), makeThread('b')],
-      1,
-    );
-    await store.saveCommentSession(
-      buildCommentSessionKey('standalone-other', 'stdin', 'stdin'),
-      [makeThread('c')],
-      1,
-    );
+    await expect(store.listRegisteredRepositories()).resolves.toEqual([]);
 
-    await expect(store.countCommentThreads(repositoryId)).resolves.toBe(2);
-    await expect(store.countCommentThreads('standalone-other')).resolves.toBe(1);
-    await expect(store.countCommentThreads('standalone-unknown')).resolves.toBe(0);
+    await store.registerRepository('zebra', makeHandle('zebra'));
+    await store.registerRepository('apple', makeHandle('apple'));
+
+    const registered = await store.listRegisteredRepositories();
+    expect(registered.map((entry) => entry.folderName)).toEqual(['apple', 'zebra']);
+    expect(registered[0]?.registeredAt).toEqual(expect.any(String) as string);
   });
 
-  it('records recent diffs, newest first, capped at 10', async () => {
+  it('replaces a registration sharing a folder name', async () => {
     const store = makeStore();
+    const replacement = makeHandle('repo');
 
-    for (let index = 0; index < 12; index += 1) {
-      await store.recordRecentDiff(`file-${index}.diff`, `standalone-${index}`, 100 + index);
-    }
-    // Re-opening updates the timestamp without duplicating the entry.
-    await store.recordRecentDiff('file-0.diff', 'standalone-0', 100);
+    await store.registerRepository('repo', makeHandle('repo'));
+    await store.registerRepository('repo', replacement);
 
-    const entries = await store.listRecentDiffs();
-    expect(entries).toHaveLength(10);
-    // Most recent first: the re-opened file-0 was touched last.
-    expect(entries[0]?.fileName).toBe('file-0.diff');
-    expect(entries.map((entry) => entry.fileName)).not.toContain('file-2.diff');
-    expect(entries.every((entry) => entry.commentCount === 0)).toBe(true);
+    await expect(store.listRegisteredRepositories()).resolves.toHaveLength(1);
+    const loaded = await store.loadRegisteredRepository('repo');
+    expect(loaded?.handle).toBe(replacement);
   });
 
-  it('forgets a recent diff by key', async () => {
+  it('forgets a registered repository by folder name', async () => {
     const store = makeStore();
-    await store.recordRecentDiff('gone.diff', 'standalone-1', 10);
+    await store.registerRepository('repo', makeHandle('repo'));
 
-    const [entry] = await store.listRecentDiffs();
-    await store.forgetRecentDiff(entry!.key);
+    await store.forgetRegisteredRepository('repo');
 
-    await expect(store.listRecentDiffs()).resolves.toEqual([]);
-  });
-
-  it('reports comment counts per recent diff', async () => {
-    const store = makeStore();
-    const repositoryId = 'standalone-1';
-    await store.recordRecentDiff('reviewed.diff', repositoryId, 10);
-    await store.saveCommentSession(
-      buildCommentSessionKey(repositoryId, 'stdin', 'stdin'),
-      [makeThread('a')],
-      1,
-    );
-
-    const [entry] = await store.listRecentDiffs();
-    expect(entry?.commentCount).toBe(1);
-  });
-
-  it('round-trips the last opened repository with its handle', async () => {
-    const store = makeStore();
-    const handle: PickedDirectoryHandle = {
-      kind: 'directory',
-      name: 'repo',
-      async *entries() {},
-    };
-    await expect(store.loadLastRepo()).resolves.toBeUndefined();
-
-    await store.saveLastRepo({
-      repoName: 'repo',
-      repositoryId: 'repo-abc123',
-      openedAt: '2026-08-28T00:00:00.000Z',
-      handle,
-    });
-
-    await expect(store.loadLastRepo()).resolves.toEqual({
-      repoName: 'repo',
-      repositoryId: 'repo-abc123',
-      openedAt: '2026-08-28T00:00:00.000Z',
-      handle,
-    });
-
-    await store.forgetLastRepo();
-    await expect(store.loadLastRepo()).resolves.toBeUndefined();
+    await expect(store.loadRegisteredRepository('repo')).resolves.toBeUndefined();
+    await expect(store.listRegisteredRepositories()).resolves.toEqual([]);
   });
 });

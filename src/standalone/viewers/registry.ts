@@ -14,24 +14,28 @@ const viewers: DiffViewerRegistration[] = [
     id: 'image',
     match: (file) => isImageFile(file.path),
     Component: ImageDiffViewer,
+    supportsPreview: false,
     canExpandHiddenLines: () => false,
   },
   {
     id: 'markdown',
     match: (file) => isMarkdownFile(file.path),
     Component: MarkdownDiffViewer,
+    supportsPreview: true,
     canExpandHiddenLines: (file) => file.status !== 'added' && file.status !== 'deleted',
   },
   {
     id: 'notebook',
     match: (file) => isNotebookFile(file.path),
     Component: NotebookDiffViewer,
+    supportsPreview: true,
     canExpandHiddenLines: (file) => file.status !== 'added' && file.status !== 'deleted',
   },
   {
     id: 'default',
     match: () => true,
     Component: TextDiffViewer,
+    supportsPreview: false,
     canExpandHiddenLines: (file) => file.status !== 'added' && file.status !== 'deleted',
   },
 ];

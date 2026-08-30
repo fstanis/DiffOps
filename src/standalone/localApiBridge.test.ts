@@ -1,44 +1,34 @@
 import { afterEach, describe, expect, it, vi } from 'bun:test';
 
-import type { DiffCommentThread } from '../types/diff';
+import type { DiffCommentThread, DiffFile } from '../types/diff';
 
 import { subscribeToBridgeEvents, type BridgeEvent } from './bridgeEvents';
 import { installLocalApiBridge } from './localApiBridge';
-import type { StandaloneDiffSource } from './diffFile';
 import { StandaloneStore, resetStandaloneStoreForTests } from './persistence/standaloneStore';
 import { createMemoryKvStore } from './persistence/kvStore';
 import { resetStandaloneSettingsForTests } from './persistence/settingsStore';
 
-const makeSource = (overrides: Partial<StandaloneDiffSource> = {}): StandaloneDiffSource => ({
-  fileName: 'changes.diff',
-  diff: {
-    commit: 'changes.diff',
-    files: [
+const makeDiffFiles = (): DiffFile[] => [
+  {
+    path: 'src/app.ts',
+    status: 'modified',
+    additions: 1,
+    deletions: 1,
+    chunks: [
       {
-        path: 'src/app.ts',
-        status: 'modified',
-        additions: 1,
-        deletions: 1,
-        chunks: [
-          {
-            header: '@@ -1 +1 @@',
-            oldStart: 1,
-            oldLines: 1,
-            newStart: 1,
-            newLines: 1,
-            lines: [
-              { type: 'delete', content: 'const version = 1;', oldLineNumber: 1 },
-              { type: 'add', content: 'const version = 2;', newLineNumber: 1 },
-            ],
-          },
+        header: '@@ -1 +1 @@',
+        oldStart: 1,
+        oldLines: 1,
+        newStart: 1,
+        newLines: 1,
+        lines: [
+          { type: 'delete', content: 'const version = 1;', oldLineNumber: 1 },
+          { type: 'add', content: 'const version = 2;', newLineNumber: 1 },
         ],
       },
     ],
-    isEmpty: false,
   },
-  repositoryId: 'standalone-test',
-  ...overrides,
-});
+];
 
 const makeThread = (id: string): DiffCommentThread => ({
   id,
@@ -55,6 +45,56 @@ const makeThread = (id: string): DiffCommentThread => ({
     },
   ],
 });
+
+const makeEngine = () => {
+  const calls: { method: string; args: unknown[] }[] = [];
+  return {
+    calls,
+    currentSelection: { baseCommitish: 'HEAD', targetCommitish: '.' },
+    diff: async (request?: unknown, ignoreWhitespace?: boolean) => {
+      calls.push({ method: 'diff', args: [request, ignoreWhitespace] });
+      return {
+        commit: 'abc1234 vs Working Directory (all uncommitted changes)',
+        files: makeDiffFiles(),
+        isEmpty: false,
+        baseCommitish: 'abc1234',
+        targetCommitish: '.',
+        requestedBaseCommitish: 'HEAD',
+        requestedTargetCommitish: '.',
+      };
+    },
+    revisions: async () => {
+      calls.push({ method: 'revisions', args: [] });
+      return {
+        specialOptions: [{ value: '.', label: 'All Uncommitted Changes' }],
+        branches: [{ name: 'main', current: true }],
+        commits: [{ hash: 'a'.repeat(40), shortHash: 'aaaaaaa', message: 'first' }],
+        originDefaultBranch: 'origin/main',
+        resolvedBase: 'abc1234',
+        resolvedTarget: undefined,
+      };
+    },
+    blob: async (path: string, ref: string) => {
+      calls.push({ method: 'blob', args: [path, ref] });
+      if (path.endsWith('.png')) {
+        return { kind: 'bytes' as const, bytes: new Uint8Array([1, 2, 3]) };
+      }
+      return { kind: 'text' as const, text: 'line one\nline two\n' };
+    },
+    lineCount: async (path: string, ref: string) => {
+      calls.push({ method: 'lineCount', args: [path, ref] });
+      return 2;
+    },
+    generatedStatus: async (path: string, ref: string) => {
+      calls.push({ method: 'generatedStatus', args: [path, ref] });
+      return { path, ref, isGenerated: true, source: 'path' as const };
+    },
+    refresh: async (files: unknown[]) => {
+      calls.push({ method: 'refresh', args: [files] });
+      return [];
+    },
+  };
+};
 
 describe('installLocalApiBridge', () => {
   let bridge: ReturnType<typeof installLocalApiBridge> | null = null;
@@ -73,42 +113,32 @@ describe('installLocalApiBridge', () => {
     return bridge;
   };
 
-  it('serves 404 from /api/diff until a diff is set', async () => {
+  const mountRepository = (
+    installed: ReturnType<typeof installLocalApiBridge>,
+    repositoryId = 'repo-test',
+  ) => {
+    const engine = makeEngine();
+    installed.setRepository({ engine, repositoryId, repoName: 'repo' });
+    return engine;
+  };
+
+  const installWithRepo = (repositoryId = 'repo-test') => {
+    const installed = install();
+    return { engine: mountRepository(installed, repositoryId), repoBridge: installed };
+  };
+
+  it('serves 404 from the repository endpoints until a repository is mounted', async () => {
     install();
 
-    const response = await fetch('/api/diff');
-    expect(response.status).toBe(404);
-  });
-
-  it('serves the opened diff with stdin pseudo-refs', async () => {
-    const source = makeSource();
-    install().setDiff(source);
-
-    const response = await fetch('/api/diff?ignoreWhitespace=true');
-    expect(response.ok).toBe(true);
-
-    const data = (await response.json()) as Record<string, unknown>;
-    expect(data.commit).toBe('changes.diff');
-    expect(data.baseCommitish).toBe('stdin');
-    expect(data.targetCommitish).toBe('stdin');
-    expect(data.requestedBaseCommitish).toBe('stdin');
-    expect(data.requestedTargetCommitish).toBe('stdin');
-    expect(data.repositoryId).toBe('standalone-test');
-    expect(data.files).toEqual(source.diff.files);
-  });
-
-  it('disables repository-backed endpoints', async () => {
-    install().setDiff(makeSource());
-
-    const revisions = await fetch('/api/revisions');
-    expect(revisions.status).toBe(404);
-
-    const blob = await fetch('/api/blob/src%2Fapp.ts?ref=stdin');
-    expect(blob.status).toBe(404);
-
-    const lineCount = await fetch('/api/line-count/src%2Fapp.ts?oldRef=stdin&newRef=stdin');
-    expect(lineCount.ok).toBe(true);
-    await expect(lineCount.json()).resolves.toEqual({ oldLineCount: 0, newLineCount: 0 });
+    for (const path of [
+      '/api/diff',
+      '/api/revisions',
+      '/api/blob/src%2Fapp.ts?ref=HEAD',
+      '/api/line-count/src%2Fapp.ts?newRef=HEAD',
+      '/api/generated-status/src%2Fapp.ts',
+    ]) {
+      expect((await fetch(path)).status).toBe(404);
+    }
   });
 
   it('passes requests it does not answer through to the real network', async () => {
@@ -127,7 +157,7 @@ describe('installLocalApiBridge', () => {
   });
 
   it('stores comments in memory with version tracking', async () => {
-    install().setDiff(makeSource());
+    installWithRepo();
 
     const post = await fetch('/api/comments', {
       method: 'POST',
@@ -149,7 +179,7 @@ describe('installLocalApiBridge', () => {
   });
 
   it('deletes stored comment threads', async () => {
-    install().setDiff(makeSource());
+    installWithRepo();
 
     await fetch('/api/comments', {
       method: 'POST',
@@ -168,29 +198,11 @@ describe('installLocalApiBridge', () => {
     expect(missing.status).toBe(404);
   });
 
-  it('resets the comment session when a new diff is set', async () => {
-    const bridge = install();
-    bridge.setDiff(makeSource());
-
-    await fetch('/api/comments', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ threads: [makeThread('thread-1')] }),
-    });
-
-    bridge.setDiff(makeSource({ repositoryId: 'standalone-other' }));
-
-    const stored = await fetch('/api/comments-json');
-    const storedData = (await stored.json()) as { version: number; threads: unknown[] };
-    expect(storedData.threads).toEqual([]);
-    expect(storedData.version).toBe(0);
-  });
-
   it('persists comments across bridge reinstalls via the store', async () => {
     const store = new StandaloneStore(createMemoryKvStore());
 
     const first = installLocalApiBridge({ store });
-    first.setDiff(makeSource());
+    mountRepository(first);
     await fetch('/api/comments', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -199,7 +211,7 @@ describe('installLocalApiBridge', () => {
     first.restore();
 
     const second = installLocalApiBridge({ store });
-    second.setDiff(makeSource());
+    mountRepository(second);
     bridge = second;
 
     const stored = await fetch('/api/comments-json');
@@ -209,28 +221,27 @@ describe('installLocalApiBridge', () => {
     expect(storedData.version).toBe(1);
   });
 
-  it('keys comment sessions by the opened diff', async () => {
-    const bridge = install();
-    bridge.setDiff(makeSource({ repositoryId: 'standalone-one' }));
-    await fetch('/api/comments', {
+  it('keys comment sessions by the repository id and selection', async () => {
+    const store = new StandaloneStore(createMemoryKvStore());
+    bridge = installLocalApiBridge({ store });
+    mountRepository(bridge);
+
+    const response = await fetch('/api/comments?base=HEAD&target=.', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ threads: [makeThread('thread-1')] }),
+      body: JSON.stringify({ threads: [makeThread('thread-1')], baseVersion: 0 }),
     });
+    expect(response.ok).toBe(true);
 
-    bridge.setDiff(makeSource({ repositoryId: 'standalone-two' }));
-    const other = await fetch('/api/comments-json');
-    const otherData = (await other.json()) as { threads: unknown[] };
-    expect(otherData.threads).toEqual([]);
+    const persisted = await store.loadCommentSession('repo-test|HEAD|.|');
+    expect(persisted?.threads).toEqual([makeThread('thread-1')]);
 
-    bridge.setDiff(makeSource({ repositoryId: 'standalone-one' }));
-    const same = await fetch('/api/comments-json');
-    const sameData = (await same.json()) as { threads: DiffCommentThread[] };
-    expect(sameData.threads.map((thread) => thread.id)).toEqual(['thread-1']);
+    const otherSelection = await fetch('/api/comments-json?base=main&target=feature');
+    await expect(otherSelection.json()).resolves.toEqual({ version: 0, threads: [] });
   });
 
   it('round-trips narrations under the comment session key', async () => {
-    install().setDiff(makeSource());
+    installWithRepo();
 
     const empty = (await (await fetch('/api/narration')).json()) as { narration: unknown };
     expect(empty.narration).toBeNull();
@@ -257,7 +268,7 @@ describe('installLocalApiBridge', () => {
   });
 
   it('rejects invalid narration payloads', async () => {
-    install().setDiff(makeSource());
+    installWithRepo();
 
     const put = await fetch('/api/narration', {
       method: 'PUT',
@@ -276,7 +287,7 @@ describe('installLocalApiBridge', () => {
     };
 
     const first = installLocalApiBridge({ store });
-    first.setDiff(makeSource());
+    mountRepository(first);
     await fetch('/api/narration', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -285,7 +296,7 @@ describe('installLocalApiBridge', () => {
     first.restore();
 
     const second = installLocalApiBridge({ store });
-    second.setDiff(makeSource());
+    mountRepository(second);
     bridge = second;
 
     const stored = (await (await fetch('/api/narration')).json()) as {
@@ -307,7 +318,7 @@ describe('installLocalApiBridge', () => {
     const explanationUrl = (path: string) => `/api/explanation?path=${encodeURIComponent(path)}`;
 
     it('round-trips a first-round explanation under the comment session and path', async () => {
-      install().setDiff(makeSource());
+      installWithRepo();
 
       const empty = (await (await fetch(explanationUrl('src/app.ts'))).json()) as {
         explanation: unknown;
@@ -338,7 +349,7 @@ describe('installLocalApiBridge', () => {
     });
 
     it('keeps each file path under its own record', async () => {
-      install().setDiff(makeSource());
+      installWithRepo();
 
       await fetch(explanationUrl('src/app.ts'), {
         method: 'PUT',
@@ -357,7 +368,7 @@ describe('installLocalApiBridge', () => {
     });
 
     it('rejects invalid explanation payloads and missing paths', async () => {
-      install().setDiff(makeSource());
+      installWithRepo();
 
       const invalidPut = await fetch(explanationUrl('src/app.ts'), {
         method: 'PUT',
@@ -389,7 +400,7 @@ describe('installLocalApiBridge', () => {
       const store = new StandaloneStore(createMemoryKvStore());
 
       const first = installLocalApiBridge({ store });
-      first.setDiff(makeSource());
+      mountRepository(first);
       await fetch(explanationUrl('src/app.ts'), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -402,7 +413,7 @@ describe('installLocalApiBridge', () => {
       first.restore();
 
       const second = installLocalApiBridge({ store });
-      second.setDiff(makeSource());
+      mountRepository(second);
       bridge = second;
 
       const stored = (await (await fetch(explanationUrl('src/app.ts'))).json()) as {
@@ -414,91 +425,6 @@ describe('installLocalApiBridge', () => {
       expect(stored.explanation?.includedSupportingFiles).toEqual(['src/helper.ts']);
       expect(stored.explanation?.explanation).toEqual(storedExplanation);
     });
-  });
-
-  it('merges exported-format comment imports and bumps the version', async () => {
-    install().setDiff(makeSource());
-
-    const response = await fetch('/api/comment-imports', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ version: 0, threads: [makeThread('imported-thread')] }),
-    });
-    const result = (await response.json()) as {
-      success: boolean;
-      changed: boolean;
-      count: number;
-      warnings: string[];
-    };
-    expect(result.success).toBe(true);
-    expect(result.changed).toBe(true);
-    expect(result.count).toBe(1);
-    expect(result.warnings).toEqual([]);
-
-    const stored = await fetch('/api/comments-json');
-    const storedData = (await stored.json()) as { version: number; threads: DiffCommentThread[] };
-    expect(storedData.threads.map((thread) => thread.id)).toEqual(['imported-thread']);
-    expect(storedData.version).toBe(1);
-  });
-
-  it('accepts CLI-format comment imports (server parity)', async () => {
-    install().setDiff(makeSource());
-
-    const response = await fetch('/api/comment-imports', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify([
-        {
-          type: 'thread',
-          filePath: 'src/app.ts',
-          position: { side: 'new', line: 1 },
-          body: 'imported from --comment',
-        },
-      ]),
-    });
-    const result = (await response.json()) as { success: boolean; count: number };
-    expect(result.success).toBe(true);
-    expect(result.count).toBe(1);
-
-    const stored = await fetch('/api/comments-json');
-    const storedData = (await stored.json()) as { threads: DiffCommentThread[] };
-    expect(storedData.threads[0]?.messages[0]?.body).toBe('imported from --comment');
-  });
-
-  it('rejects invalid comment imports with 400', async () => {
-    install().setDiff(makeSource());
-
-    const response = await fetch('/api/comment-imports', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify([{ type: 'unknown', filePath: 'x', position: {}, body: '' }]),
-    });
-    expect(response.status).toBe(400);
-  });
-
-  it('broadcasts commentsChanged to subscribers on import', async () => {
-    install().setDiff(makeSource());
-
-    const events: BridgeEvent[] = [];
-    const unsubscribe = subscribeToBridgeEvents((event) => {
-      events.push(event);
-    });
-
-    await fetch('/api/comment-imports', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ threads: [makeThread('via-import')] }),
-    });
-
-    expect(events).toEqual([{ type: 'commentsChanged' }]);
-
-    unsubscribe();
-    await fetch('/api/comment-imports', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ threads: [makeThread('another')] }),
-    });
-    expect(events).toEqual([{ type: 'commentsChanged' }]);
   });
 
   it('serves user settings from localStorage with merge-on-put semantics', async () => {
@@ -545,82 +471,12 @@ describe('installLocalApiBridge', () => {
     const fetchMock = vi.fn();
     window.fetch = fetchMock as unknown as typeof window.fetch;
 
-    const bridge = install();
-    bridge.restore();
+    const installed = install();
+    installed.restore();
 
     // fetch is restored as a bound reference, so route a call through it to check it reaches the pre-install implementation.
     await window.fetch('/api/diff');
     expect(fetchMock).toHaveBeenCalledWith('/api/diff');
-  });
-});
-
-describe('installLocalApiBridge repository mode', () => {
-  let bridge: ReturnType<typeof installLocalApiBridge> | null = null;
-
-  const makeEngine = () => {
-    const calls: { method: string; args: unknown[] }[] = [];
-    return {
-      calls,
-      currentSelection: { baseCommitish: 'HEAD', targetCommitish: '.' },
-      diff: async (request?: unknown, ignoreWhitespace?: boolean) => {
-        calls.push({ method: 'diff', args: [request, ignoreWhitespace] });
-        return {
-          commit: 'abc1234 vs Working Directory (all uncommitted changes)',
-          files: makeSource().diff.files,
-          isEmpty: false,
-          baseCommitish: 'abc1234',
-          targetCommitish: '.',
-          requestedBaseCommitish: 'HEAD',
-          requestedTargetCommitish: '.',
-        };
-      },
-      revisions: async () => {
-        calls.push({ method: 'revisions', args: [] });
-        return {
-          specialOptions: [{ value: '.', label: 'All Uncommitted Changes' }],
-          branches: [{ name: 'main', current: true }],
-          commits: [{ hash: 'a'.repeat(40), shortHash: 'aaaaaaa', message: 'first' }],
-          originDefaultBranch: 'origin/main',
-          resolvedBase: 'abc1234',
-          resolvedTarget: undefined,
-        };
-      },
-      blob: async (path: string, ref: string) => {
-        calls.push({ method: 'blob', args: [path, ref] });
-        if (path.endsWith('.png')) {
-          return { kind: 'bytes' as const, bytes: new Uint8Array([1, 2, 3]) };
-        }
-        return { kind: 'text' as const, text: 'line one\nline two\n' };
-      },
-      lineCount: async (path: string, ref: string) => {
-        calls.push({ method: 'lineCount', args: [path, ref] });
-        return 2;
-      },
-      generatedStatus: async (path: string, ref: string) => {
-        calls.push({ method: 'generatedStatus', args: [path, ref] });
-        return { path, ref, isGenerated: true, source: 'path' as const };
-      },
-      refresh: async (files: unknown[]) => {
-        calls.push({ method: 'refresh', args: [files] });
-        return [];
-      },
-    };
-  };
-
-  const installWithRepo = () => {
-    const engine = makeEngine();
-    bridge = installLocalApiBridge();
-    bridge.setRepository({ engine, repositoryId: 'repo-test', repoName: 'repo' });
-    return { engine, repoBridge: bridge };
-  };
-
-  afterEach(() => {
-    bridge?.restore();
-    bridge = null;
-    window.localStorage.clear();
-    resetStandaloneStoreForTests();
-    resetStandaloneSettingsForTests();
-    vi.restoreAllMocks();
   });
 
   it('serves /api/diff from the engine with the route-level fields', async () => {
@@ -633,7 +489,7 @@ describe('installLocalApiBridge repository mode', () => {
     expect(data.repositoryId).toBe('repo-test');
     expect(data.ignoreWhitespace).toBe(true);
     expect(data.targetCommitish).toBe('.');
-    expect(data.files).toEqual(makeSource().diff.files);
+    expect(data.files).toEqual(makeDiffFiles());
     expect(engine.calls[0]).toEqual({
       method: 'diff',
       args: [{ base: 'HEAD', target: '.', baseMode: undefined }, true],
@@ -711,35 +567,6 @@ describe('installLocalApiBridge repository mode', () => {
     expect(engine.calls.at(-1)?.args[1]).toBe('.');
   });
 
-  it('keys comment sessions by the repository id and selection', async () => {
-    const store = new StandaloneStore(createMemoryKvStore());
-    bridge = installLocalApiBridge({ store });
-    bridge.setRepository({
-      engine: makeEngine(),
-      repositoryId: 'repo-test',
-      repoName: 'repo',
-    });
-
-    const response = await fetch('/api/comments?base=HEAD&target=.', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ threads: [makeThread('thread-1')], baseVersion: 0 }),
-    });
-    expect(response.ok).toBe(true);
-
-    const persisted = await store.loadCommentSession('repo-test|HEAD|.|');
-    expect(persisted?.threads).toEqual([makeThread('thread-1')]);
-  });
-
-  it('tracks the active source kind on the window', () => {
-    const diffFileModeWindow = window as Window & { __DIFFOPS_DIFF_FILE_MODE__?: boolean };
-    const { repoBridge } = installWithRepo();
-    expect(diffFileModeWindow.__DIFFOPS_DIFF_FILE_MODE__).toBe(false);
-
-    repoBridge.setDiff(makeSource());
-    expect(diffFileModeWindow.__DIFFOPS_DIFF_FILE_MODE__).toBe(true);
-  });
-
   it('refresh remounts the engine and broadcasts a reload event', async () => {
     const { engine } = installWithRepo();
     const events: BridgeEvent[] = [];
@@ -758,20 +585,5 @@ describe('installLocalApiBridge repository mode', () => {
     expect(events).toEqual([{ type: 'reload' }]);
 
     unsubscribe();
-  });
-
-  it('exposes the active selection as the comment query for exports', async () => {
-    const { repoBridge } = installWithRepo();
-    expect(repoBridge.getCommentQuery()).toBe('base=HEAD&target=.');
-
-    await fetch('/api/comments?base=main&target=feature', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ threads: [] }),
-    });
-    expect(repoBridge.getCommentQuery()).toBe('base=main&target=feature');
-
-    repoBridge.clearActiveSource();
-    expect(repoBridge.getCommentQuery()).toBe('base=stdin&target=stdin');
   });
 });

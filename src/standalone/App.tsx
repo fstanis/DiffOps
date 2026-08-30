@@ -64,6 +64,7 @@ import {
   getMergedChunksForVersion,
 } from './utils/mergedChunks';
 import { buildFileLineIndex, isThreadOutdated } from './utils/outdatedComments';
+import { resolveFileViewMode } from './viewers/viewModeOptions';
 
 const EMPTY_COMMENT_THREADS: CommentThread[] = [];
 const EMPTY_DIFF_FILES: DiffFile[] = [];
@@ -140,10 +141,17 @@ const getStoredSidebarOpen = (): boolean | null => {
 
 const getInitialFileTreeOpen = () => getStoredSidebarOpen() ?? true;
 
-function App() {
+interface AppProps {
+  /** Seeds the revision state and follows history navigation; null defers to the engine's default. */
+  routeSelection?: DiffSelection | null;
+  /** Reports the selection now on screen, so the shell can write it into the URL. */
+  onSelectionChange?: (selection: DiffSelection) => void;
+}
+
+function App({ routeSelection = null, onSelectionChange }: AppProps) {
   const [diffData, setDiffData] = useState<DiffResponse | null>(null);
   const [diffDataVersion, setDiffDataVersion] = useState(0);
-  const [fileViewModes, setFileViewModes] = useState<FileViewModesByPath>(loadFileViewModes);
+  const [fileViewModes, setFileViewModes] = useState<FileViewModesByPath>({});
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -162,11 +170,11 @@ function App() {
 
   const [revisionOptions, setRevisionOptions] = useState<RevisionsResponse | null>(null);
   const [selectedRevision, setSelectedRevision] = useState<DiffSelection>(
-    createDiffSelection('', ''),
+    () => routeSelection ?? createDiffSelection('', ''),
   );
   const [resolvedBaseRevision, setResolvedBaseRevision] = useState<string>('');
   const [resolvedTargetRevision, setResolvedTargetRevision] = useState<string>('');
-  const hasUserSelectedRevisionRef = useRef(false);
+  const hasUserSelectedRevisionRef = useRef(routeSelection !== null);
   const currentRequestedBaseModeRef = useRef(selectedRevision.baseMode);
   currentRequestedBaseModeRef.current = diffData?.requestedBaseMode ?? selectedRevision.baseMode;
   const selectedRevisionRef = useRef(selectedRevision);
@@ -456,30 +464,27 @@ function App() {
     setFileViewModes((prev) => (prev[filePath] === mode ? prev : { ...prev, [filePath]: mode }));
   }, []);
 
+  // The mode map is scoped by repository, so it can only load once a diff has arrived.
+  const fileViewModesRepositoryId = diffData ? (diffData.repositoryId ?? 'default') : '';
+
   useEffect(() => {
-    saveFileViewModes(fileViewModes);
-  }, [fileViewModes]);
+    if (!fileViewModesRepositoryId) {
+      return;
+    }
+    setFileViewModes(loadFileViewModes(fileViewModesRepositoryId));
+  }, [fileViewModesRepositoryId]);
 
-  const isStdinDiff = diffData?.baseCommitish === 'stdin' || diffData?.targetCommitish === 'stdin';
+  useEffect(() => {
+    if (!fileViewModesRepositoryId) {
+      return;
+    }
+    saveFileViewModes(fileViewModesRepositoryId, fileViewModes);
+  }, [fileViewModesRepositoryId, fileViewModes]);
 
-  // Falls back from the stored preference: full/full-preview need /api/blob (unavailable for stdin diffs), and split/full are unreadable on mobile.
-  const resolveFileViewMode = useCallback(
-    (file: DiffFile): FileViewMode => {
-      const stored = fileViewModes[file.path] ?? DEFAULT_FILE_VIEW_MODE;
-      if (isStdinDiff) {
-        if (stored === 'full') {
-          return 'unified';
-        }
-        if (stored === 'full-preview') {
-          return 'diff-preview';
-        }
-      }
-      if (isMobile && (stored === 'split' || stored === 'full')) {
-        return 'unified';
-      }
-      return stored;
-    },
-    [fileViewModes, isStdinDiff, isMobile],
+  const getFileViewMode = useCallback(
+    (file: DiffFile): FileViewMode =>
+      resolveFileViewMode(file, fileViewModes[file.path] ?? DEFAULT_FILE_VIEW_MODE, isMobile).mode,
+    [fileViewModes, isMobile],
   );
 
   // Expand state is lifted so navigation and rendering share one merged-chunks view.
@@ -555,10 +560,10 @@ function App() {
       if (!file) {
         return DEFAULT_DIFF_VIEW_MODE;
       }
-      const mode = resolveFileViewMode(file);
+      const mode = getFileViewMode(file);
       return mode === 'split' || mode === 'full' ? mode : 'unified';
     },
-    [navigableFiles, resolveFileViewMode],
+    [navigableFiles, getFileViewMode],
   );
 
   const narrationCardsByPath = useMemo(() => {
@@ -821,11 +826,11 @@ function App() {
         fileIndex: targetIndex,
         chunkIndex: 0,
         lineIndex: 0,
-        side: resolveFileViewMode(targetFile) === 'split' ? 'left' : 'right',
+        side: getFileViewMode(targetFile) === 'split' ? 'left' : 'right',
       });
       scrollFileSectionIntoView(path);
     },
-    [displayFiles, resolveFileViewMode, setCursorPosition, scrollFileSectionIntoView],
+    [displayFiles, getFileViewMode, setCursorPosition, scrollFileSectionIntoView],
   );
 
   const handleCommentTriggerHandled = useCallback(() => {
@@ -1023,9 +1028,11 @@ function App() {
       .catch(() => setRevisionOptions(null));
   }, []);
 
+  // Reads the live selection from the ref so the callback stays stable: the
+  // route effect below must fire on route changes only, never on its own writes.
   const handleRevisionChange = useCallback(
     async (nextSelection: DiffSelection) => {
-      if (diffSelectionsEqual(nextSelection, selectedRevision)) return;
+      if (diffSelectionsEqual(nextSelection, selectedRevisionRef.current)) return;
 
       hasUserSelectedRevisionRef.current = true;
       selectedRevisionRef.current = nextSelection;
@@ -1034,8 +1041,23 @@ function App() {
       setError(null);
       await fetchDiffData(nextSelection);
     },
-    [fetchDiffData, selectedRevision],
+    [fetchDiffData],
   );
+
+  // History navigation moves the route under the viewer; the seeded mount is already equal.
+  useEffect(() => {
+    if (!routeSelection) {
+      return;
+    }
+    void handleRevisionChange(routeSelection);
+  }, [routeSelection, handleRevisionChange]);
+
+  useEffect(() => {
+    if (!selectedRevision.baseCommitish || !selectedRevision.targetCommitish) {
+      return;
+    }
+    onSelectionChange?.(selectedRevision);
+  }, [selectedRevision, onSelectionChange]);
 
   // CLI --clean: clear comments and viewed files once on load.
   const hasCleanedRef = useRef(false);
@@ -1043,7 +1065,7 @@ function App() {
     if (diffData?.clearComments && !hasCleanedRef.current) {
       hasCleanedRef.current = true;
       pendingBootstrapAfterLocalResetRef.current = true;
-      clearAllComments({ resetAppliedCommentImportIds: true });
+      clearAllComments();
       clearViewedFiles();
       console.log(
         '✅ All existing comments and viewed files cleared as requested via --clean flag',
@@ -1075,7 +1097,7 @@ function App() {
         const serverThreads = await fetchServerThreads();
         const nextThreads = shouldReplaceFromServer
           ? serverThreads
-          : mergeCommentThreads(serverThreads, threads).threads;
+          : mergeCommentThreads(serverThreads, threads);
         if (cancelled) {
           return;
         }
@@ -1583,7 +1605,7 @@ function App() {
                         file={file}
                         threads={fileThreads}
                         showAuthorBadges={showAuthorBadges}
-                        viewMode={resolveFileViewMode(file)}
+                        viewMode={getFileViewMode(file)}
                         onFileViewModeChange={handleFileViewModeChange}
                         reviewedFiles={viewedFiles}
                         isChangedSinceViewed={changedSinceViewedFiles.has(file.path)}

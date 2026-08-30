@@ -1,259 +1,106 @@
 import { describe, expect, it } from 'bun:test';
 
-import type { CommentImport, DiffCommentThread } from '../types/diff';
+import type { DiffCommentThread } from '../types/diff';
 
-import {
-  mergeCommentImports,
-  parseCommentImportValue,
-  serializeCommentImports,
-} from './commentImports';
+import { mergeCommentThreads } from './commentImports';
 
-function createThread({
-  id,
-  filePath = 'src/example.ts',
-  side = 'new',
-  line = 10,
-  body,
-  updatedAt = '2024-01-01T00:00:00.000Z',
-}: {
-  id: string;
-  filePath?: string;
-  side?: 'old' | 'new';
-  line?: number;
-  body: string;
-  updatedAt?: string;
-}): DiffCommentThread {
-  return {
-    id,
-    filePath,
-    createdAt: '2024-01-01T00:00:00.000Z',
-    updatedAt,
-    position: {
-      side,
-      line,
+const makeThread = (overrides: Partial<DiffCommentThread> = {}): DiffCommentThread => ({
+  id: 'thread-1',
+  filePath: 'src/app.ts',
+  createdAt: '2026-08-28T10:00:00.000Z',
+  updatedAt: '2026-08-28T10:00:00.000Z',
+  position: { side: 'new', line: 12 },
+  messages: [
+    {
+      id: 'message-1',
+      body: 'Why the early return?',
+      author: 'Reviewer',
+      createdAt: '2026-08-28T10:00:00.000Z',
+      updatedAt: '2026-08-28T10:00:00.000Z',
     },
-    messages: [
-      {
-        id,
-        body,
-        author: 'User',
-        createdAt: '2024-01-01T00:00:00.000Z',
-        updatedAt,
-      },
-    ],
-  };
-}
+  ],
+  ...overrides,
+});
 
-describe('commentImports', () => {
-  describe('parseCommentImportValue', () => {
-    it('parses a single thread import', () => {
-      const imports = parseCommentImportValue(
-        JSON.stringify({
-          type: 'thread',
-          filePath: 'src/example.ts',
-          position: { side: 'new', line: 10 },
-          body: 'Review comment',
-        }),
-      );
-
-      expect(imports).toEqual([
+describe('mergeCommentThreads', () => {
+  it('appends threads the existing set does not have', () => {
+    const existing = makeThread();
+    const incoming = makeThread({
+      id: 'thread-2',
+      position: { side: 'new', line: 40 },
+      messages: [
         {
-          type: 'thread',
-          filePath: 'src/example.ts',
-          position: { side: 'new', line: 10 },
-          body: 'Review comment',
-          id: undefined,
-          author: undefined,
-          createdAt: undefined,
-          updatedAt: undefined,
-          codeSnapshot: undefined,
+          id: 'message-2',
+          body: 'Nit: rename this.',
+          createdAt: '2026-08-28T11:00:00.000Z',
+          updatedAt: '2026-08-28T11:00:00.000Z',
         },
-      ]);
+      ],
     });
 
-    it('parses an array of imports', () => {
-      const imports = parseCommentImportValue(
-        JSON.stringify([
-          {
-            type: 'thread',
-            filePath: 'src/example.ts',
-            position: { side: 'new', line: 10 },
-            body: 'Root',
-          },
-          {
-            type: 'reply',
-            filePath: 'src/example.ts',
-            position: { side: 'new', line: 10 },
-            body: 'Reply',
-          },
-        ]),
-      );
+    const merged = mergeCommentThreads([existing], [incoming]);
 
-      expect(imports).toHaveLength(2);
-      expect(imports[0]?.type).toBe('thread');
-      expect(imports[1]?.type).toBe('reply');
-    });
-
-    it('rejects malformed json', () => {
-      expect(() => parseCommentImportValue('{')).toThrow('Invalid --comment JSON');
-    });
-
-    it('rejects invalid import shape', () => {
-      expect(() =>
-        parseCommentImportValue(
-          JSON.stringify({
-            type: 'thread',
-            filePath: '',
-            position: { side: 'new', line: 0 },
-            body: '',
-          }),
-        ),
-      ).toThrow('Invalid comment import field: filePath');
-    });
+    expect(merged.map((thread) => thread.id)).toEqual(['thread-1', 'thread-2']);
   });
 
-  describe('serializeCommentImports', () => {
-    it('creates a stable payload string for hashing', () => {
-      const commentImports: CommentImport[] = [
-        {
-          type: 'thread',
-          id: 'thread-1',
-          filePath: 'src/example.ts',
-          position: { side: 'new', line: { start: 10, end: 12 } },
-          body: 'Root',
-          author: 'AI',
-          createdAt: '2024-01-01T00:00:00.000Z',
-          updatedAt: '2024-01-01T00:00:00.000Z',
-          codeSnapshot: { content: 'const value = 1;' },
-        },
-      ];
+  it('matches a thread by file, position and root message when ids differ', () => {
+    const existing = makeThread();
+    const sameThreadOtherId = makeThread({ id: 'thread-renamed' });
 
-      expect(serializeCommentImports(commentImports)).toBe(
-        JSON.stringify([
-          {
-            type: 'thread',
-            id: 'thread-1',
-            filePath: 'src/example.ts',
-            position: { side: 'new', line: { start: 10, end: 12 } },
-            body: 'Root',
-            author: 'AI',
-            createdAt: '2024-01-01T00:00:00.000Z',
-            updatedAt: '2024-01-01T00:00:00.000Z',
-            codeSnapshot: { content: 'const value = 1;', language: undefined },
-          },
-        ]),
-      );
-    });
+    const merged = mergeCommentThreads([existing], [sameThreadOtherId]);
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.id).toBe('thread-1');
   });
 
-  describe('mergeCommentImports', () => {
-    it('adds a new thread import', () => {
-      const result = mergeCommentImports(
-        [],
-        [
-          {
-            type: 'thread',
-            filePath: 'src/example.ts',
-            position: { side: 'new', line: 10 },
-            body: 'Imported thread',
-          },
-        ],
-      );
-
-      expect(result.warnings).toEqual([]);
-      expect(result.threads).toHaveLength(1);
-      expect(result.threads[0]?.messages[0]?.body).toBe('Imported thread');
-    });
-
-    it('skips a duplicate thread import with the same root message', () => {
-      const existing = [createThread({ id: 'thread-1', body: 'Imported thread' })];
-
-      const result = mergeCommentImports(existing, [
+  it('adds the incoming reply and keeps replies in creation order', () => {
+    const existing = makeThread();
+    const withReply = makeThread({
+      updatedAt: '2026-08-28T12:00:00.000Z',
+      messages: [
+        ...makeThread().messages,
         {
-          type: 'thread',
-          filePath: 'src/example.ts',
-          position: { side: 'new', line: 10 },
-          body: 'Imported thread',
-          author: 'User',
+          id: 'message-reply',
+          body: 'Because of the guard above.',
+          createdAt: '2026-08-28T12:00:00.000Z',
+          updatedAt: '2026-08-28T12:00:00.000Z',
         },
-      ]);
-
-      expect(result.threads).toHaveLength(1);
+      ],
     });
 
-    it('adds a reply to the newest matching thread', () => {
-      const olderThread = createThread({
-        id: 'thread-1',
-        body: 'Root 1',
-        updatedAt: '2024-01-01T00:00:00.000Z',
-      });
-      const newerThread = createThread({
-        id: 'thread-2',
-        body: 'Root 2',
-        updatedAt: '2024-01-02T00:00:00.000Z',
-      });
+    const merged = mergeCommentThreads([existing], [withReply]);
 
-      const result = mergeCommentImports(
-        [olderThread, newerThread],
-        [
-          {
-            type: 'reply',
-            filePath: 'src/example.ts',
-            position: { side: 'new', line: 10 },
-            body: 'Imported reply',
-            author: 'AI',
-          },
-        ],
-      );
+    expect(merged[0]?.messages.map((message) => message.id)).toEqual([
+      'message-1',
+      'message-reply',
+    ]);
+    expect(merged[0]?.updatedAt).toBe('2026-08-28T12:00:00.000Z');
+  });
 
-      expect(result.threads[0]?.messages).toHaveLength(1);
-      expect(result.threads[1]?.messages).toHaveLength(2);
-      expect(result.threads[1]?.messages[1]?.body).toBe('Imported reply');
+  it('keeps the newer edit of a message present on both sides', () => {
+    const existing = makeThread();
+    const edited = makeThread({
+      messages: [
+        {
+          ...makeThread().messages[0]!,
+          body: 'Why the early return here?',
+          updatedAt: '2026-08-28T13:00:00.000Z',
+        },
+      ],
     });
 
-    it('skips a duplicate reply import', () => {
-      const existing = createThread({ id: 'thread-1', body: 'Root' });
-      existing.messages.push({
-        id: 'reply-1',
-        body: 'Imported reply',
-        author: 'AI',
-        createdAt: '2024-01-02T00:00:00.000Z',
-        updatedAt: '2024-01-02T00:00:00.000Z',
-      });
+    const merged = mergeCommentThreads([existing], [edited]);
 
-      const result = mergeCommentImports(
-        [existing],
-        [
-          {
-            type: 'reply',
-            id: 'reply-1',
-            filePath: 'src/example.ts',
-            position: { side: 'new', line: 10 },
-            body: 'Imported reply',
-            author: 'AI',
-          },
-        ],
-      );
+    expect(merged[0]?.messages[0]?.body).toBe('Why the early return here?');
+  });
 
-      expect(result.threads[0]?.messages).toHaveLength(2);
-    });
+  it('leaves both inputs untouched', () => {
+    const existing = makeThread();
+    const incoming = makeThread({ id: 'thread-2', position: { side: 'new', line: 40 } });
 
-    it('warns and skips reply import when no matching thread exists', () => {
-      const result = mergeCommentImports(
-        [],
-        [
-          {
-            type: 'reply',
-            filePath: 'src/example.ts',
-            position: { side: 'new', line: 10 },
-            body: 'Imported reply',
-          },
-        ],
-      );
+    mergeCommentThreads([existing], [incoming]);
 
-      expect(result.threads).toEqual([]);
-      expect(result.warnings).toHaveLength(1);
-      expect(result.warnings[0]).toContain('Skipped reply import');
-    });
+    expect(existing).toEqual(makeThread());
+    expect(incoming.messages).toHaveLength(1);
   });
 });

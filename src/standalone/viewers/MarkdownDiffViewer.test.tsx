@@ -470,14 +470,6 @@ describe('MarkdownDiffViewer two-side fetch', () => {
       await screen.findByText('Base content unavailable — showing partial preview.'),
     ).toBeInTheDocument();
   });
-
-  it('does not fetch when both refs are stdin', async () => {
-    renderViewer({ baseCommitish: 'stdin', targetCommitish: 'stdin' });
-
-    await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledTimes(0);
-    });
-  });
 });
 
 describe('MarkdownFullPreview integration', () => {
@@ -747,16 +739,5 @@ describe('MarkdownDiffPreview frontmatter diff', () => {
     expect(await screen.findByText(/target only/i)).toBeInTheDocument();
     expect(screen.getByText('title')).toBeInTheDocument();
     expect(screen.getByText('OnlyTarget')).toBeInTheDocument();
-  });
-
-  it('renders no frontmatter table for stdin (no fetch performed)', async () => {
-    renderViewer({ baseCommitish: 'stdin', targetCommitish: 'stdin' });
-
-    await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledTimes(0);
-    });
-
-    expect(screen.queryByText('title')).not.toBeInTheDocument();
-    expect(screen.queryByText(/frontmatter/i)).not.toBeInTheDocument();
   });
 });

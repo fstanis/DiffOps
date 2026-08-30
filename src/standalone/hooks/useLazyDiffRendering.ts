@@ -295,7 +295,7 @@ export function useLazyDiffRendering({
   );
 
   useEffect(() => {
-    if (!diffData || diffData.targetCommitish === 'stdin') return;
+    if (!diffData) return;
 
     const ref = diffData.targetCommitish || 'HEAD';
     const generatedStatusRevisionKey = `${diffData.requestedBaseCommitish ?? ''}...${diffData.requestedTargetCommitish ?? ''}:${diffData.requestedBaseMode ?? 'direct'}`;

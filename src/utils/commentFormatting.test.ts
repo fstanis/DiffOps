@@ -168,7 +168,7 @@ Reply 1 (Reviewer)
 Related entries are below.`);
     });
 
-    it.each(['working', 'staged', '.', 'stdin'])(
+    it.each(['working', 'staged', '.'])(
       'should omit the header for non-range target %s',
       (target) => {
         const result = formatAllCommentThreadsPrompt([threads[0]!], {

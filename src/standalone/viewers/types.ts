@@ -55,5 +55,7 @@ export type DiffViewerRegistration = {
   id: string;
   match: (file: DiffFile) => boolean;
   Component: ComponentType<DiffViewerBodyProps>;
+  /** Renders the file's content, not just its diff, under the preview view modes. */
+  supportsPreview: boolean;
   canExpandHiddenLines?: (file: DiffFile) => boolean;
 };

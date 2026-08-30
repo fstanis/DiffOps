@@ -90,7 +90,7 @@ describe('useLazyDiffRendering', () => {
         deletions: 1,
         chunks: [],
       }));
-      const diffData = { targetCommitish: 'stdin', files } as unknown as DiffResponse;
+      const diffData = { targetCommitish: 'HEAD', files } as unknown as DiffResponse;
       const container = document.createElement('div');
       document.body.appendChild(container);
 
