@@ -9,9 +9,11 @@ import {
   resolveExplainModel,
   validateExplainPrompt,
 } from './explain.js';
+import { generateNarration, resolveNarrateModel, validateNarrateRequest } from './narrate.js';
 
 const STATUS_PATH = '/ai-gateway/status';
 const EXPLAIN_PATH = '/ai-gateway/explain';
+const NARRATE_PATH = '/ai-gateway/narrate';
 
 const jsonResponse = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), {
@@ -23,6 +25,7 @@ const statusResponse = (): Response =>
   jsonResponse({
     enabled: isExplainConfigured(),
     model: resolveExplainModel(),
+    narrateModel: resolveNarrateModel(),
   } satisfies ExplainStatusResponse);
 
 const explainResponse = async (request: Request): Promise<Response> => {
@@ -48,6 +51,33 @@ const explainResponse = async (request: Request): Promise<Response> => {
   }
 };
 
+const narrateResponse = async (request: Request): Promise<Response> => {
+  if (!isExplainConfigured()) {
+    return jsonResponse(
+      { error: 'Narration is not configured: set the AI_GATEWAY_API_KEY environment variable' },
+      503,
+    );
+  }
+
+  try {
+    const body: unknown = await request.json().catch(() => null);
+    const validation = validateNarrateRequest(body);
+    if (!validation.ok) {
+      return jsonResponse({ error: validation.error }, validation.status);
+    }
+
+    const narration = await generateNarration(
+      validation.prompt,
+      validation.paths,
+      resolveNarrateModel(),
+    );
+    return jsonResponse({ narration });
+  } catch (error) {
+    console.error('Error generating narration:', error);
+    return jsonResponse({ error: 'Failed to generate narration' }, 502);
+  }
+};
+
 /** Whether a request pathname belongs to the gateway surface. */
 export const isAiGatewayPath = (pathname: string): boolean => pathname.startsWith('/ai-gateway/');
 
@@ -65,6 +95,9 @@ export async function handleAiGatewayRequest(request: Request): Promise<Response
   }
   if (pathname === EXPLAIN_PATH && request.method === 'POST') {
     return explainResponse(request);
+  }
+  if (pathname === NARRATE_PATH && request.method === 'POST') {
+    return narrateResponse(request);
   }
   return new Response('Not found', { status: 404 });
 }

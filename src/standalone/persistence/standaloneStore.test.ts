@@ -53,6 +53,29 @@ describe('StandaloneStore', () => {
     });
   });
 
+  it('round-trips narrations under their own session key', async () => {
+    const store = makeStore();
+    const key = buildCommentSessionKey('standalone-test', 'stdin', 'stdin');
+
+    await expect(store.loadNarration(key)).resolves.toBeUndefined();
+
+    const narration = {
+      intro: 'Adds a flag.',
+      cards: [{ path: 'src/app.ts', narrative: 'The whole change.' }],
+      epilogue: 'None.',
+    };
+    await store.saveNarration(key, narration, 'fingerprint-1');
+
+    await expect(store.loadNarration(key)).resolves.toEqual({
+      narration,
+      fingerprint: 'fingerprint-1',
+      updatedAt: expect.any(String) as string,
+    });
+    await expect(
+      store.loadNarration(buildCommentSessionKey('standalone-other', 'stdin', 'stdin')),
+    ).resolves.toBeUndefined();
+  });
+
   it('counts comment threads across a repository\u2019s sessions only', async () => {
     const store = makeStore();
     const repositoryId = 'standalone-test';

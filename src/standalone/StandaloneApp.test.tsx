@@ -363,6 +363,38 @@ describe('StandaloneApp repository mode', () => {
     expect(client.mountedRepoNames).toEqual(['repo']);
   });
 
+  it('clears the preparing overlay even when persistence never settles', async () => {
+    // A blocked IndexedDB upgrade (another tab holding the old database
+    // version) leaves the open pending forever; recording the last repo is
+    // best-effort and must not keep the app "preparing".
+    const hangingRequest: {
+      onupgradeneeded: (() => void) | null;
+      onsuccess: (() => void) | null;
+      onerror: (() => void) | null;
+      onblocked: (() => void) | null;
+    } = { onupgradeneeded: null, onsuccess: null, onerror: null, onblocked: null };
+    vi.stubGlobal('indexedDB', { open: () => hangingRequest });
+    try {
+      installPicker(repoHandle);
+      const client = makeFakeClient();
+      renderRepoApp(client);
+
+      fireEvent.click(await screen.findByTestId('open-repo-button'));
+
+      await waitFor(() => {
+        expect(screen.getByText('src/repo.ts')).toBeInTheDocument();
+      });
+      await waitFor(() => {
+        expect(screen.queryByText('Preparing the git engine…')).not.toBeInTheDocument();
+      });
+      expect(client.mountedRepoNames).toEqual(['repo']);
+    } finally {
+      // Settle the hung open so its timeout timer does not outlive the test.
+      hangingRequest.onerror?.();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('shows engine warnings as a dismissible banner without blocking the diff', async () => {
     installPicker(repoHandle);
     const client = new FakeGitWorkerClient({

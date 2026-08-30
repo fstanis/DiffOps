@@ -1,4 +1,4 @@
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type React from 'react';
 import { HotkeysProvider } from 'react-hotkeys-hook';
@@ -333,6 +333,147 @@ describe('useKeyboardNavigation', () => {
       expect(result.current.cursor?.fileIndex).toBe(mockFiles.length - 1);
       expect(result.current.cursor?.chunkIndex).toBe(0);
       expect(result.current.cursor?.lineIndex).toBe(0);
+    });
+  });
+
+  describe('Narrated order', () => {
+    // Narrated view reorders the files array; the cursor must follow that
+    // array, so git-order neighbors are irrelevant.
+    const narratedFiles = [mockFiles[1]!, mockFiles[0]!];
+
+    it('steps next/prev file through the narrated order', async () => {
+      const user = userEvent.setup();
+      const { result } = renderHook(
+        () =>
+          useKeyboardNavigation({
+            files: narratedFiles,
+            comments: [],
+            viewMode: 'unified',
+            onToggleReviewed: vi.fn(),
+            reviewedFiles: new Set<string>(),
+          }),
+        { wrapper },
+      );
+
+      act(() => {
+        result.current.setCursorPosition({
+          fileIndex: 0,
+          chunkIndex: 0,
+          lineIndex: 0,
+          side: 'right',
+        });
+      });
+
+      await user.keyboard('{\\]}');
+      expect(result.current.cursor?.fileIndex).toBe(1);
+
+      await user.keyboard('{\\[}');
+      expect(result.current.cursor?.fileIndex).toBe(0);
+    });
+
+    it('advances reviewed-file auto-advance through the narrated order', async () => {
+      const user = userEvent.setup();
+      const onToggleReviewed = vi.fn();
+      const { result } = renderHook(
+        () =>
+          useKeyboardNavigation({
+            files: narratedFiles,
+            comments: [],
+            viewMode: 'unified',
+            onToggleReviewed,
+            reviewedFiles: new Set([narratedFiles[0]!.path]),
+          }),
+        { wrapper },
+      );
+
+      act(() => {
+        result.current.setCursorPosition({
+          fileIndex: 0,
+          chunkIndex: 0,
+          lineIndex: 0,
+          side: 'right',
+        });
+      });
+
+      await user.keyboard('[ShiftLeft>]v[/ShiftLeft]');
+
+      expect(onToggleReviewed).not.toHaveBeenCalled();
+      expect(result.current.cursor?.fileIndex).toBe(1);
+    });
+  });
+
+  describe('File scroll anchoring', () => {
+    const renderNavigation = (
+      onScrollToFile: (filePath: string) => void,
+      reviewedFiles = new Set<string>(),
+    ) =>
+      renderHook(
+        () =>
+          useKeyboardNavigation({
+            files: mockFiles,
+            comments: [],
+            viewMode: 'unified',
+            onToggleReviewed: vi.fn(),
+            reviewedFiles,
+            onScrollToFile,
+          }),
+        { wrapper },
+      );
+
+    it('anchors file steps through onScrollToFile', async () => {
+      const user = userEvent.setup();
+      const onScrollToFile = vi.fn();
+      const { result } = renderNavigation(onScrollToFile);
+
+      act(() => {
+        result.current.setCursorPosition({
+          fileIndex: 0,
+          chunkIndex: 0,
+          lineIndex: 0,
+          side: 'right',
+        });
+      });
+
+      await user.keyboard('{\\]}');
+      expect(result.current.cursor?.fileIndex).toBe(1);
+      expect(onScrollToFile).toHaveBeenCalledWith(mockFiles[1]!.path);
+
+      await user.keyboard('{\\[}');
+      expect(result.current.cursor?.fileIndex).toBe(0);
+      expect(onScrollToFile).toHaveBeenCalledWith(mockFiles[0]!.path);
+    });
+
+    it('anchors jump-to-first/last through onScrollToFile', () => {
+      const onScrollToFile = vi.fn();
+      renderNavigation(onScrollToFile);
+
+      // userEvent on happy-dom reports Shift+BracketLeft as key "[", so the
+      // browser-accurate key is dispatched directly for the brace hotkeys.
+      fireEvent.keyDown(document, { key: '{', code: 'BracketLeft', shiftKey: true });
+      expect(onScrollToFile).toHaveBeenCalledWith(mockFiles[0]!.path);
+
+      fireEvent.keyDown(document, { key: '}', code: 'BracketRight', shiftKey: true });
+      expect(onScrollToFile).toHaveBeenCalledWith(mockFiles[mockFiles.length - 1]!.path);
+    });
+
+    it('anchors shift+v auto-advance through onScrollToFile', async () => {
+      const user = userEvent.setup();
+      const onScrollToFile = vi.fn();
+      const { result } = renderNavigation(onScrollToFile, new Set([mockFiles[0]!.path]));
+
+      act(() => {
+        result.current.setCursorPosition({
+          fileIndex: 0,
+          chunkIndex: 0,
+          lineIndex: 0,
+          side: 'right',
+        });
+      });
+
+      await user.keyboard('[ShiftLeft>]v[/ShiftLeft]');
+
+      expect(result.current.cursor?.fileIndex).toBe(1);
+      expect(onScrollToFile).toHaveBeenCalledWith(mockFiles[1]!.path);
     });
   });
 

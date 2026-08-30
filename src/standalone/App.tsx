@@ -7,10 +7,11 @@ import {
   PanelLeft,
   Keyboard,
 } from 'lucide-react';
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { Fragment, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 
 import {
   type DiffCommentThread,
+  type DiffFile,
   type DiffResponse,
   type DiffSelection,
   type DiffViewMode,
@@ -37,6 +38,8 @@ import { DiffViewer } from './components/DiffViewer';
 import { FileList } from './components/FileList';
 import { HelpModal } from './components/HelpModal';
 import { Logo } from './components/Logo';
+import { NarrationCard } from './components/NarrationCard';
+import { NarrationToggle } from './components/NarrationToggle';
 import { ReloadButton } from './components/ReloadButton';
 import { RevisionDetailModal } from './components/RevisionDetailModal';
 import { SettingsModal } from './components/SettingsModal';
@@ -47,6 +50,7 @@ import { useDiffComments } from './hooks/useDiffComments';
 import { useExpandedLines, type MergedChunk } from './hooks/useExpandedLines';
 import { useKeyboardNavigation } from './hooks/useKeyboardNavigation';
 import { useLazyDiffRendering } from './hooks/useLazyDiffRendering';
+import { useNarration } from './hooks/useNarration';
 import { useViewedFiles } from './hooks/useViewedFiles';
 import { useViewport } from './hooks/useViewport';
 import { subscribeToBridgeEvents } from './bridgeEvents';
@@ -55,6 +59,7 @@ import { hasMultipleCommentAuthors } from './utils/commentAuthors';
 import { copyTextToClipboard } from './utils/clipboard';
 import { getFileElementId } from './utils/domUtils';
 import { findCommentPosition } from './utils/navigation/positionHelpers';
+import { orderFilesByNarration } from './utils/narrationFingerprint';
 import {
   EMPTY_MERGED_CHUNKS_STATE,
   buildMergedChunksState,
@@ -63,6 +68,7 @@ import {
 import { buildFileLineIndex, isThreadOutdated } from './utils/outdatedComments';
 
 const EMPTY_COMMENT_THREADS: CommentThread[] = [];
+const EMPTY_DIFF_FILES: DiffFile[] = [];
 const EMPTY_MERGED_CHUNKS: MergedChunk[] = [];
 const DIFF_VIEW_MODE_STORAGE_KEY = 'diffops.diffViewMode';
 const SIDEBAR_WIDTH_STORAGE_KEY = 'diffops.sidebarWidth';
@@ -84,12 +90,7 @@ const parseDiffViewMode = (value: unknown): DiffViewMode | null => {
   }
 };
 
-/**
- * Builds the user-facing message for a failed /api/diff response, preferring
- * the endpoint's own error detail (the engine's failure reason) over a bare
- * status. The status and body are also logged: a generic banner with nothing
- * in the console leaves diff failures undiagnosable.
- */
+/** Builds the /api/diff failure message, preferring the endpoint's error detail. */
 const diffFetchErrorMessage = async (
   response: Response,
   params: URLSearchParams,
@@ -189,10 +190,9 @@ function App() {
   const collapsedInitializedRef = useRef(false);
   const diffScrollContainerRef = useRef<HTMLElement | null>(null);
 
-  // Revision selector state
   const [revisionOptions, setRevisionOptions] = useState<RevisionsResponse | null>(null);
-  // AI explain availability, reported by the local server (disabled on the
-  // static site build and when no gateway API key is configured)
+  // Gateway availability reported by the diffops server; static hosting or a
+  // missing key leaves explain and narration off.
   const [explainStatus, setExplainStatus] = useState<ExplainStatusResponse | null>(null);
   const [selectedRevision, setSelectedRevision] = useState<DiffSelection>(
     createDiffSelection('', ''),
@@ -228,7 +228,6 @@ function App() {
   const { settings, updateSettings } = useAppearanceSettings();
   const { isMobile, isDesktop } = useViewport();
 
-  // New diff-aware comment system
   const {
     hasLoadedComments,
     threads,
@@ -291,6 +290,14 @@ function App() {
   const serverCommentVersionRef = useRef<number | null>(null);
   const pendingBootstrapAfterLocalResetRef = useRef(false);
 
+  const narration = useNarration({
+    files: diffData?.files ?? EMPTY_DIFF_FILES,
+    commitLabel: diffData?.commit ?? '',
+    sessionQueryString: commentSessionQueryString,
+    gatewayStatus: explainStatus,
+  });
+  const isNarrationActive = narration.isNarratedView && narration.narration !== null;
+
   useEffect(() => {
     if (commentsContextKey !== bootstrappedCommentsKey) {
       skipNextCommentSyncRef.current = false;
@@ -344,7 +351,6 @@ function App() {
     [getCommentApiUrl, replaceThreads],
   );
 
-  // Viewed files management
   const {
     viewedFiles,
     changedSinceViewedFiles,
@@ -363,12 +369,11 @@ function App() {
     resolvedSelection?.baseMode,
   );
 
-  // Reset initialization flag when diff context changes
   useEffect(() => {
     collapsedInitializedRef.current = false;
   }, [diffData?.repositoryId, resolvedSelectionKey, diffData?.commit]);
 
-  // Initialize collapsed files from viewed files (only once per diff)
+  // Collapse previously-viewed files once per diff.
   useEffect(() => {
     if (!collapsedInitializedRef.current && hasLoadedInitialViewedFiles) {
       setCollapsedFiles(new Set(viewedFiles));
@@ -381,6 +386,7 @@ function App() {
     ensureFilesRenderedUpTo,
     registerLazyFileContainer,
     scrollFileIntoDiffContainer,
+    scrollNarrationCardIntoView,
     isFileScrolledPastContainerTop,
   } = useLazyDiffRendering({
     diffData,
@@ -396,21 +402,16 @@ function App() {
       if (!file) return;
 
       const wasViewed = viewedFiles.has(filePath);
-      // Measure before the collapse re-renders: only re-anchor the header when
-      // the user is scrolled past it (deep inside a long file), so the viewport
-      // doesn't land in unrelated content after collapsing (#164). If the header
-      // is already visible, stay stationary and let files below fill up (#402).
+      // Re-anchor the header only when the user is scrolled past it (#164);
+      // otherwise stay stationary and let files below fill up (#402).
       const shouldScrollToHeader = !wasViewed && isFileScrolledPastContainerTop(filePath);
       await toggleFileViewed(filePath, file);
 
-      // Update collapsed state based on viewed state
       setCollapsedFiles((prev) => {
         const newSet = new Set(prev);
         if (!wasViewed) {
-          // Marking as viewed -> collapse the file
           newSet.add(filePath);
         } else {
-          // Marking as not viewed -> expand the file
           newSet.delete(filePath);
         }
         return newSet;
@@ -440,7 +441,6 @@ function App() {
 
       await setFilesViewed(folderFiles, reviewed);
 
-      // Keep the collapse state of every file in the folder in sync with its viewed state
       setCollapsedFiles((prev) => {
         const newSet = new Set(prev);
         folderFiles.forEach((file) => {
@@ -473,10 +473,8 @@ function App() {
       if (!diffData) return;
 
       if (shouldCollapse) {
-        // Collapse all files
         setCollapsedFiles(new Set(diffData.files.map((f) => f.path)));
       } else {
-        // Expand all files
         setCollapsedFiles(new Set());
       }
     },
@@ -497,14 +495,13 @@ function App() {
     saveClientSettings({ diffViewMode: mode });
   }, []);
 
-  // Current mode renders the whole new file via /api/blob, which stdin diffs
-  // cannot serve; fall back to unified for the session without overwriting
-  // the persisted preference.
+  // Current view needs /api/blob, which stdin diffs cannot serve; fall back
+  // to unified without overwriting the persisted preference.
   const isStdinDiff = diffData?.baseCommitish === 'stdin' || diffData?.targetCommitish === 'stdin';
   const effectiveDiffMode: DiffViewMode =
     isStdinDiff && diffMode === 'current' ? 'unified' : diffMode;
 
-  // Lift expand state to App level so navigation and rendering share the same merged chunks
+  // Expand state is lifted so navigation and rendering share one merged-chunks view.
   const {
     isLoading: isExpandLoading,
     expandLines,
@@ -532,7 +529,6 @@ function App() {
     return map;
   }, [diffData]);
 
-  // Recompute merged chunks for the current fetched diff only.
   useEffect(() => {
     if (!diffData) {
       setMergedChunksState(EMPTY_MERGED_CHUNKS_STATE);
@@ -546,15 +542,59 @@ function App() {
     );
   }, [diffData, diffDataVersion, filesByPath, renderedFilePaths, lastUpdatedAt]);
 
-  // Create files with merged chunks for keyboard navigation
+  // The single ordering source of truth; sidebar, main scroll, cursor, and
+  // anchors all consume this array.
+  const displayFiles = useMemo(() => {
+    if (!isNarrationActive || !narration.narration || !diffData) {
+      return diffData?.files ?? EMPTY_DIFF_FILES;
+    }
+    return orderFilesByNarration(diffData.files, narration.narration);
+  }, [isNarrationActive, narration.narration, diffData]);
+
   const navigableFiles = useMemo(() => {
-    if (!diffData) return [];
-    return diffData.files.map((file) => ({
+    if (displayFiles.length === 0) return [];
+    return displayFiles.map((file) => ({
       ...file,
       chunks:
         getMergedChunksForVersion(mergedChunksState, diffDataVersion, file.path) || file.chunks,
     }));
-  }, [diffData, diffDataVersion, mergedChunksState]);
+  }, [displayFiles, diffDataVersion, mergedChunksState]);
+
+  const narrationCardsByPath = useMemo(() => {
+    const cards = new Map<string, string>();
+    narration.narration?.cards.forEach((card) => {
+      cards.set(card.path, card.narrative);
+    });
+    return cards;
+  }, [narration.narration]);
+
+  // File-level scrolls anchor the narrated section — the card — in narrated
+  // view and the file header otherwise, so nothing above the diff is cut off.
+  const scrollFileSectionIntoView = useCallback(
+    (filePath: string) => {
+      if (isNarrationActive && narrationCardsByPath.has(filePath)) {
+        const targetIndex = displayFiles.findIndex((file) => file.path === filePath);
+        if (targetIndex === -1) {
+          return;
+        }
+        const precedingPaths = displayFiles.slice(0, targetIndex).map((file) => file.path);
+        scrollNarrationCardIntoView(
+          `narration-card-${getFileElementId(filePath)}`,
+          precedingPaths,
+          filePath,
+        );
+        return;
+      }
+      scrollFileIntoDiffContainer(filePath);
+    },
+    [
+      isNarrationActive,
+      narrationCardsByPath,
+      displayFiles,
+      scrollNarrationCardIntoView,
+      scrollFileIntoDiffContainer,
+    ],
+  );
 
   const fileLineIndexByPath = useMemo(() => {
     const map = new Map<string, ReturnType<typeof buildFileLineIndex>>();
@@ -599,7 +639,6 @@ function App() {
     return map;
   }, [normalizedThreads]);
 
-  // State to trigger comment creation from keyboard
   const [commentTrigger, setCommentTrigger] = useState<{
     fileIndex: number;
     chunkIndex: number;
@@ -619,9 +658,8 @@ function App() {
     }
   }, [commentsContextKey, fetchServerThreads, replaceThreads]);
 
-  // The bridge reports repository refreshes and comment imports; a refresh
-  // offers the reload button instead of refetching under the user, so UI
-  // state (collapse, cursor, scroll) survives.
+  // Bridge refreshes offer the reload button instead of refetching under the
+  // user so cursor, collapse, and scroll state survive.
   const [shouldReload, setShouldReload] = useState(false);
   const [isReloading, setIsReloading] = useState(false);
   const reload = useCallback(async () => {
@@ -649,7 +687,7 @@ function App() {
     [handleCommentsChanged],
   );
 
-  // Track which file the mouse is over so `v` works without a cursor
+  // The hovered file lets `v` work without a cursor.
   const hoveredFileIndexRef = useRef<number | null>(null);
   const getHoveredFileIndex = useCallback(() => hoveredFileIndexRef.current, []);
 
@@ -686,35 +724,33 @@ function App() {
       onRefresh: () => {
         void reload();
       },
+      onScrollToFile: scrollFileSectionIntoView,
     });
 
-  // Viewed button in the diff header: silently remember the toggled file as
-  // the navigation position, so keyboard navigation resumes from it without
-  // showing any keyboard UI for a mouse interaction
+  // Silently remember the toggled file as the navigation position; no
+  // keyboard UI for a mouse interaction.
   const handleViewedButtonToggle = useCallback(
     (filePath: string) => {
       void toggleFileReviewed(filePath);
-      if (diffData) {
-        const fileIndex = diffData.files.findIndex((f) => f.path === filePath);
-        if (fileIndex !== -1) {
-          rememberFilePosition(fileIndex);
-        }
+      const fileIndex = displayFiles.findIndex((f) => f.path === filePath);
+      if (fileIndex !== -1) {
+        rememberFilePosition(fileIndex);
       }
     },
-    [toggleFileReviewed, diffData, rememberFilePosition],
+    [toggleFileReviewed, displayFiles, rememberFilePosition],
   );
 
   useEffect(() => {
-    if (!diffData || !cursor) return;
+    if (!displayFiles.length || !cursor) return;
 
-    const filePath = diffData.files[cursor.fileIndex]?.path;
+    const filePath = displayFiles[cursor.fileIndex]?.path;
     if (!filePath || renderedFilePaths.has(filePath)) return;
 
     ensureFilesRenderedUpTo(filePath);
     requestAnimationFrame(() => {
       setCursorPosition(cursor);
     });
-  }, [cursor, diffData, ensureFilesRenderedUpTo, renderedFilePaths, setCursorPosition]);
+  }, [cursor, displayFiles, ensureFilesRenderedUpTo, renderedFilePaths, setCursorPosition]);
 
   const handleLineClick = useCallback(
     (fileIndex: number, chunkIndex: number, lineIndex: number, side: 'left' | 'right') => {
@@ -726,6 +762,59 @@ function App() {
       });
     },
     [setCursorPosition],
+  );
+
+  const narrationAnchorPathRef = useRef<string | null>(null);
+  const handleToggleNarratedView = useCallback(() => {
+    // Capture the cursor's file while indexes still mean git order; the flip
+    // effect re-anchors to it once narrated order applies.
+    narrationAnchorPathRef.current = cursor ? (displayFiles[cursor.fileIndex]?.path ?? null) : null;
+    narration.toggleNarratedView();
+  }, [cursor, displayFiles, narration]);
+
+  // On the git→narrated flip, keep the viewed file in view at its new
+  // position and remap the remembered cursor to the new order.
+  const prevIsNarratedViewRef = useRef(false);
+  useEffect(() => {
+    const wasNarratedView = prevIsNarratedViewRef.current;
+    prevIsNarratedViewRef.current = narration.isNarratedView;
+    if (!narration.isNarratedView || wasNarratedView || !isNarrationActive) {
+      return;
+    }
+
+    const anchorPath = narrationAnchorPathRef.current;
+    if (anchorPath) {
+      const anchorIndex = displayFiles.findIndex((file) => file.path === anchorPath);
+      if (anchorIndex >= 0) {
+        rememberFilePosition(anchorIndex);
+        scrollFileSectionIntoView(anchorPath);
+      }
+    }
+  }, [
+    narration.isNarratedView,
+    isNarrationActive,
+    displayFiles,
+    rememberFilePosition,
+    scrollFileSectionIntoView,
+  ]);
+
+  const changedPaths = useMemo(() => displayFiles.map((file) => file.path), [displayFiles]);
+
+  const handleNarrationPathNavigate = useCallback(
+    (path: string) => {
+      const targetIndex = displayFiles.findIndex((file) => file.path === path);
+      if (targetIndex === -1) {
+        return;
+      }
+      setCursorPosition({
+        fileIndex: targetIndex,
+        chunkIndex: 0,
+        lineIndex: 0,
+        side: effectiveDiffMode === 'split' ? 'left' : 'right',
+      });
+      scrollFileSectionIntoView(path);
+    },
+    [displayFiles, effectiveDiffMode, setCursorPosition, scrollFileSectionIntoView],
   );
 
   const handleCommentTriggerHandled = useCallback(() => {
@@ -792,7 +881,6 @@ function App() {
         setDiffData(data);
         setDiffDataVersion((prev) => prev + 1);
 
-        // Update resolved revision state from server response
         setResolvedBaseRevision(
           data.baseCommitish && data.requestedBaseMode !== 'merge-base' ? data.baseCommitish : '',
         );
@@ -807,8 +895,6 @@ function App() {
             );
           }
         }
-
-        // Lock files are now automatically marked as viewed by useViewedFiles hook
       } catch (err) {
         if ((err as { name?: string } | null)?.name === 'AbortError') {
           return;
@@ -846,9 +932,8 @@ function App() {
     }
   }, [diffMode, isMobile]);
 
-  // Hydrate UI settings from the server-persisted config so they survive
-  // across ports (localStorage is origin-scoped and resets on a new port).
-  // Settings the server doesn't know yet are seeded from localStorage.
+  // Hydrate settings from the server config so they survive port changes;
+  // seed unknown keys from localStorage.
   useEffect(() => {
     let cancelled = false;
 
@@ -904,7 +989,7 @@ function App() {
     } catch {
       // Ignore localStorage errors (e.g. disabled storage).
     }
-    // Skip the mount run so simply opening diffops doesn't write the config file.
+    // Skip the mount run so opening diffops doesn't write the config file.
     if (skipInitialSidebarWidthSaveRef.current) {
       skipInitialSidebarWidthSaveRef.current = false;
       return;
@@ -926,7 +1011,6 @@ function App() {
     saveClientSettings({ sidebarOpen: isFileTreeOpen });
   }, [isFileTreeOpen]);
 
-  // Fetch revision options on mount
   useEffect(() => {
     fetch('/api/revisions')
       .then((res) => (res.ok ? res.json() : null))
@@ -945,24 +1029,25 @@ function App() {
       .catch(() => setRevisionOptions(null));
   }, []);
 
-  // Fetch AI explain availability on mount; the probe targets the diffops
-  // server's gateway, so static hosting or offline leaves it unreachable and
-  // the feature disabled with its own reason
+  // Probing the server's gateway; static hosting or offline leaves the AI
+  // features disabled with their own reasons.
   useEffect(() => {
     fetch('/ai-gateway/status')
       .then((res) => (res.ok ? res.json() : null))
       .then((data: ExplainStatusResponse | null) => {
         if (data && typeof data.model === 'string') {
-          setExplainStatus({ enabled: data.enabled === true, model: data.model });
+          setExplainStatus({
+            enabled: data.enabled === true,
+            model: data.model,
+            narrateModel: typeof data.narrateModel === 'string' ? data.narrateModel : undefined,
+          });
         }
       })
       .catch(() => setExplainStatus(null));
   }, []);
 
-  // Handle revision change
   const handleRevisionChange = useCallback(
     async (nextSelection: DiffSelection) => {
-      // Skip if no actual change
       if (diffSelectionsEqual(nextSelection, selectedRevision)) return;
 
       hasUserSelectedRevisionRef.current = true;
@@ -975,7 +1060,7 @@ function App() {
     [fetchDiffData, selectedRevision],
   );
 
-  // Clear comments and viewed files on initial load if requested via CLI flag
+  // CLI --clean: clear comments and viewed files once on load.
   const hasCleanedRef = useRef(false);
   useEffect(() => {
     if (diffData?.clearComments && !hasCleanedRef.current) {
@@ -1059,26 +1144,23 @@ function App() {
     threads,
   ]);
 
-  // Trigger sparkle animation when all files are viewed
   useEffect(() => {
-    if (diffData) {
-      // Reset the trigger flag when not all files are viewed
-      if (viewedFiles.size < diffData.files.length) {
-        setHasTriggeredSparkles(false);
-      }
-      // Show sparkles when all files are viewed and not already triggered
-      else if (viewedFiles.size === diffData.files.length && !hasTriggeredSparkles) {
-        setShowSparkles(true);
-        setHasTriggeredSparkles(true);
-        // Hide sparkles after animation completes
-        setTimeout(() => {
-          setShowSparkles(false);
-        }, 1000);
-      }
+    if (
+      viewedFiles.size === diffData?.files.length &&
+      diffData?.files.length &&
+      !hasTriggeredSparkles
+    ) {
+      setShowSparkles(true);
+      setHasTriggeredSparkles(true);
+      setTimeout(() => {
+        setShowSparkles(false);
+      }, 1000);
+    } else if (viewedFiles.size < (diffData?.files.length ?? 0)) {
+      setHasTriggeredSparkles(false);
     }
   }, [viewedFiles.size, diffData, hasTriggeredSparkles]);
 
-  // Send comments to server whenever they change and before page unload
+  // Sync comments to the server on change and on page unload.
   useEffect(() => {
     if (!hasBootstrappedComments) {
       return;
@@ -1089,10 +1171,7 @@ function App() {
       baseVersion: serverCommentVersionRef.current ?? undefined,
     });
     const commentsApiUrl = getCommentApiUrl('/api/comments');
-
-    // Also handle page unload
     const sendCommentsBeforeUnload = () => {
-      // Use sendBeacon for reliable delivery during page unload, including empty states.
       navigator.sendBeacon(commentsApiUrl, data);
     };
 
@@ -1175,15 +1254,12 @@ function App() {
   };
 
   const handleGlobalClick = (e: React.MouseEvent) => {
-    // Clear cursor position
     setCursorPosition(null);
 
-    // Check if clicking on a comment button
     const target = e.target as HTMLElement;
     const isCommentButton = target.closest('[data-comment-button="true"]');
     const isShiftRangeClick = e.shiftKey && target.closest('[data-diff-line-row="true"]');
 
-    // Close empty comment forms (unless clicking on a comment button)
     if (!isCommentButton && !isShiftRangeClick) {
       closeEmptyCommentForms(e);
     }
@@ -1192,7 +1268,6 @@ function App() {
   const closeEmptyCommentForms = (e: React.MouseEvent) => {
     const emptyForms = document.querySelectorAll('form[data-empty="true"]');
     emptyForms.forEach((form) => {
-      // Don't close if clicking inside the form itself
       if (!form.contains(e.target as Node)) {
         const cancelButton = form.querySelector<HTMLButtonElement>('[data-comment-cancel="true"]');
         cancelButton?.click();
@@ -1472,15 +1547,25 @@ function App() {
               }}
             >
               <div className="flex-1 overflow-y-auto">
+                <NarrationToggle
+                  isNarratedView={narration.isNarratedView}
+                  phase={narration.phase}
+                  errorMessage={narration.errorMessage}
+                  disabledReason={narration.disabledReason}
+                  narrateModel={narration.narrateModel}
+                  onToggle={handleToggleNarratedView}
+                  onRegenerate={narration.regenerate}
+                />
                 <FileList
-                  files={diffData.files}
-                  onScrollToFile={scrollFileIntoDiffContainer}
+                  files={displayFiles}
+                  onScrollToFile={scrollFileSectionIntoView}
                   onFileSelected={isMobile ? handleMobileFileSelected : undefined}
                   comments={normalizedThreads}
                   reviewedFiles={viewedFiles}
                   onToggleReviewed={toggleFileReviewed}
                   onToggleFolderReviewed={toggleFolderReviewed}
                   selectedFileIndex={cursor?.fileIndex ?? null}
+                  isNarratedView={isNarrationActive}
                 />
               </div>
               {!isMobile && (
@@ -1513,92 +1598,121 @@ function App() {
             ref={diffScrollContainerRef}
             className={`flex-1 overflow-y-auto ${showMobileCommentsBar ? 'pb-16' : ''}`}
           >
-            {diffData.files.map((file, fileIndex) => {
+            {isNarrationActive && narration.narration && (
+              <NarrationCard
+                cardId="narration-card-intro"
+                title="Narration — what this changeset does"
+                body={narration.narration.intro}
+                changedPaths={changedPaths}
+                onNavigateToPath={handleNarrationPathNavigate}
+              />
+            )}
+            {displayFiles.map((file, fileIndex) => {
               const fileThreads = threadsByFile.get(file.path) ?? EMPTY_COMMENT_THREADS;
               const mergedChunks =
                 getMergedChunksForVersion(mergedChunksState, diffDataVersion, file.path) ??
                 EMPTY_MERGED_CHUNKS;
               const isRendered = renderedFilePaths.has(file.path);
+              const fileNarrative = narrationCardsByPath.get(file.path);
               return (
-                <div
-                  key={file.path}
-                  id={getFileElementId(file.path)}
-                  data-file-path={file.path}
-                  data-rendered={isRendered ? 'true' : 'false'}
-                  ref={(node) => registerLazyFileContainer(file.path, node)}
-                  className="mb-6"
-                  onMouseEnter={() => {
-                    hoveredFileIndexRef.current = fileIndex;
-                  }}
-                  onMouseLeave={() => {
-                    if (hoveredFileIndexRef.current === fileIndex) {
-                      hoveredFileIndexRef.current = null;
-                    }
-                  }}
-                >
-                  {isRendered ? (
-                    <DiffViewer
-                      file={file}
-                      threads={fileThreads}
-                      showAuthorBadges={showAuthorBadges}
-                      diffMode={effectiveDiffMode}
-                      reviewedFiles={viewedFiles}
-                      isChangedSinceViewed={changedSinceViewedFiles.has(file.path)}
-                      onToggleReviewed={handleViewedButtonToggle}
-                      collapsedFiles={collapsedFiles}
-                      onToggleCollapsed={toggleFileCollapsed}
-                      onToggleAllCollapsed={toggleAllFilesCollapsed}
-                      allFiles={diffData.files}
-                      commitLabel={diffData.commit}
-                      explainStatus={explainStatus}
-                      onAddComment={handleAddComment}
-                      onGenerateThreadPrompt={handleGenerateThreadPrompt}
-                      onRemoveThread={removeThread}
-                      onReplyToThread={handleReplyToThread}
-                      onRemoveMessage={removeMessage}
-                      onUpdateMessage={updateMessage}
-                      syntaxTheme={settings.syntaxTheme}
-                      baseCommitish={diffData.baseCommitish}
-                      targetCommitish={diffData.targetCommitish}
-                      cursor={cursor?.fileIndex === fileIndex ? cursor : null}
-                      isFocused={cursor?.fileIndex === fileIndex}
-                      fileIndex={fileIndex}
-                      onLineClick={handleLineClick}
-                      commentTrigger={
-                        commentTrigger?.fileIndex === fileIndex ? commentTrigger : null
-                      }
-                      onCommentTriggerHandled={handleCommentTriggerHandled}
-                      mergedChunks={mergedChunks}
-                      expandLines={expandLines}
-                      expandAllBetweenChunks={expandAllBetweenChunks}
-                      prefetchFileContent={prefetchFileContent}
-                      isExpandLoading={isExpandLoading}
-                      diffVersion={diffDataVersion}
+                <Fragment key={file.path}>
+                  {isNarrationActive && fileNarrative !== undefined && (
+                    <NarrationCard
+                      cardId={`narration-card-${getFileElementId(file.path)}`}
+                      title={file.path}
+                      body={fileNarrative}
+                      changedPaths={changedPaths}
+                      onNavigateToPath={handleNarrationPathNavigate}
                     />
-                  ) : (
-                    <div className="bg-github-bg-secondary border border-github-border rounded-md px-4 py-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="text-xs uppercase tracking-wide text-github-text-muted">
-                            Deferred Rendering
-                          </div>
-                          <div className="text-sm font-mono text-github-text-primary truncate">
-                            {file.path}
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => ensureFileRendered(file.path)}
-                          className="px-3 py-1.5 text-xs rounded border border-github-border text-github-text-secondary hover:text-github-text-primary hover:bg-github-bg-tertiary"
-                        >
-                          Load now
-                        </button>
-                      </div>
-                    </div>
                   )}
-                </div>
+                  <div
+                    id={getFileElementId(file.path)}
+                    data-file-path={file.path}
+                    data-rendered={isRendered ? 'true' : 'false'}
+                    ref={(node) => registerLazyFileContainer(file.path, node)}
+                    className="mb-6"
+                    onMouseEnter={() => {
+                      hoveredFileIndexRef.current = fileIndex;
+                    }}
+                    onMouseLeave={() => {
+                      if (hoveredFileIndexRef.current === fileIndex) {
+                        hoveredFileIndexRef.current = null;
+                      }
+                    }}
+                  >
+                    {isRendered ? (
+                      <DiffViewer
+                        file={file}
+                        threads={fileThreads}
+                        showAuthorBadges={showAuthorBadges}
+                        diffMode={effectiveDiffMode}
+                        reviewedFiles={viewedFiles}
+                        isChangedSinceViewed={changedSinceViewedFiles.has(file.path)}
+                        onToggleReviewed={handleViewedButtonToggle}
+                        collapsedFiles={collapsedFiles}
+                        onToggleCollapsed={toggleFileCollapsed}
+                        onToggleAllCollapsed={toggleAllFilesCollapsed}
+                        allFiles={diffData.files}
+                        commitLabel={diffData.commit}
+                        explainStatus={explainStatus}
+                        onAddComment={handleAddComment}
+                        onGenerateThreadPrompt={handleGenerateThreadPrompt}
+                        onRemoveThread={removeThread}
+                        onReplyToThread={handleReplyToThread}
+                        onRemoveMessage={removeMessage}
+                        onUpdateMessage={updateMessage}
+                        syntaxTheme={settings.syntaxTheme}
+                        baseCommitish={diffData.baseCommitish}
+                        targetCommitish={diffData.targetCommitish}
+                        cursor={cursor?.fileIndex === fileIndex ? cursor : null}
+                        isFocused={cursor?.fileIndex === fileIndex}
+                        fileIndex={fileIndex}
+                        onLineClick={handleLineClick}
+                        commentTrigger={
+                          commentTrigger?.fileIndex === fileIndex ? commentTrigger : null
+                        }
+                        onCommentTriggerHandled={handleCommentTriggerHandled}
+                        mergedChunks={mergedChunks}
+                        expandLines={expandLines}
+                        expandAllBetweenChunks={expandAllBetweenChunks}
+                        prefetchFileContent={prefetchFileContent}
+                        isExpandLoading={isExpandLoading}
+                        diffVersion={diffDataVersion}
+                      />
+                    ) : (
+                      <div className="bg-github-bg-secondary border border-github-border rounded-md px-4 py-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-xs uppercase tracking-wide text-github-text-muted">
+                              Deferred Rendering
+                            </div>
+                            <div className="text-sm font-mono text-github-text-primary truncate">
+                              {file.path}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => ensureFileRendered(file.path)}
+                            className="px-3 py-1.5 text-xs rounded border border-github-border text-github-text-secondary hover:text-github-text-primary hover:bg-github-bg-tertiary"
+                          >
+                            Load now
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </Fragment>
               );
             })}
+            {isNarrationActive && narration.narration && (
+              <NarrationCard
+                cardId="narration-card-epilogue"
+                title="Narration — overall risks and manual checks"
+                body={narration.narration.epilogue}
+                changedPaths={changedPaths}
+                onNavigateToPath={handleNarrationPathNavigate}
+              />
+            )}
           </main>
         </div>
 

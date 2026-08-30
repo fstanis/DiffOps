@@ -35,6 +35,7 @@ export function useKeyboardNavigation({
   onShowCommentsList,
   onRefresh,
   getHoveredFileIndex,
+  onScrollToFile,
 }: UseKeyboardNavigationProps): UseKeyboardNavigationReturn {
   const [cursor, setCursor] = useState<CursorPosition | null>(null);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
@@ -50,6 +51,22 @@ export function useKeyboardNavigation({
 
   // Create scroll function
   const scrollToElement = useMemo(() => createScrollToElement(), []);
+
+  // File-level jumps anchor the section start (the narration card in
+  // narrated view) so content above the first line is never cut off.
+  const scrollToFilePosition = useCallback(
+    (position: CursorPosition) => {
+      if (onScrollToFile) {
+        const filePath = files[position.fileIndex]?.path;
+        if (filePath) {
+          onScrollToFile(filePath);
+        }
+        return;
+      }
+      scrollToElement(getElementId(position, viewMode));
+    },
+    [onScrollToFile, files, scrollToElement, viewMode],
+  );
 
   // Build comment index for efficient lookup
   const commentIndex = useMemo(() => {
@@ -111,9 +128,16 @@ export function useKeyboardNavigation({
     [createNavigationCommand, filters.chunk],
   );
 
-  const navigateToFile = useMemo(
-    () => createNavigationCommand(filters.file),
-    [createNavigationCommand, filters.file],
+  // Navigation to files
+  const navigateToFile = useCallback(
+    (direction: NavigationDirection) => {
+      const result = navigate(direction, filters.file);
+      if (result.position) {
+        setCursor(result.position);
+        scrollToFilePosition(result.position);
+      }
+    },
+    [navigate, filters.file, scrollToFilePosition],
   );
 
   // Navigation to comments
@@ -349,59 +373,37 @@ export function useKeyboardNavigation({
   useHotkeys(
     '{',
     () => {
-      if (files.length > 0) {
-        setCursor({
-          fileIndex: 0,
-          chunkIndex: 0,
-          lineIndex: 0,
-          side: viewMode === 'split' ? 'left' : 'right',
-        });
-        scrollToElement(
-          getElementId(
-            {
-              fileIndex: 0,
-              chunkIndex: 0,
-              lineIndex: 0,
-              side: viewMode === 'split' ? 'left' : 'right',
-            },
-            viewMode,
-          ),
-        );
-      }
+      if (files.length === 0) return;
+      const position: CursorPosition = {
+        fileIndex: 0,
+        chunkIndex: 0,
+        lineIndex: 0,
+        side: viewMode === 'split' ? 'left' : 'right',
+      };
+      setCursor(position);
+      scrollToFilePosition(position);
     },
     { ...hotkeyOptions, useKey: true },
-    [files, viewMode, scrollToElement],
+    [files, viewMode, scrollToFilePosition],
   );
 
   useHotkeys(
     '}',
     () => {
-      if (files.length > 0) {
-        const lastFileIndex = files.length - 1;
-        const lastFile = files[lastFileIndex];
-        if (lastFile && lastFile.chunks.length > 0) {
-          setCursor({
-            fileIndex: lastFileIndex,
-            chunkIndex: 0,
-            lineIndex: 0,
-            side: viewMode === 'split' ? 'left' : 'right',
-          });
-          scrollToElement(
-            getElementId(
-              {
-                fileIndex: lastFileIndex,
-                chunkIndex: 0,
-                lineIndex: 0,
-                side: viewMode === 'split' ? 'left' : 'right',
-              },
-              viewMode,
-            ),
-          );
-        }
-      }
+      const lastFileIndex = files.length - 1;
+      const lastFile = files[lastFileIndex];
+      if (!lastFile || lastFile.chunks.length === 0) return;
+      const position: CursorPosition = {
+        fileIndex: lastFileIndex,
+        chunkIndex: 0,
+        lineIndex: 0,
+        side: viewMode === 'split' ? 'left' : 'right',
+      };
+      setCursor(position);
+      scrollToFilePosition(position);
     },
     { ...hotkeyOptions, useKey: true },
-    [files, viewMode, scrollToElement],
+    [files, viewMode, scrollToFilePosition],
   );
 
   // Side switching (split mode only)
@@ -439,11 +441,11 @@ export function useKeyboardNavigation({
           files,
         );
         setCursor(position);
-        scrollToElement(getElementId(position, viewMode));
+        scrollToFilePosition(position);
         return;
       }
     },
-    [files, reviewedFiles, viewMode, scrollToElement],
+    [files, reviewedFiles, viewMode, scrollToFilePosition],
   );
 
   // Update only the remembered navigation position, without showing the

@@ -165,4 +165,102 @@ describe('FileList', () => {
     fireEvent.click(checkbox);
     expect(onToggleFolderReviewed).toHaveBeenCalledWith('src', false);
   });
+
+  it('renders a numbered flat list in narrated view', () => {
+    render(
+      <FileList
+        files={[
+          createFile('src/cli/index.ts'),
+          createFile('src/client/App.tsx'),
+          createFile('README.md'),
+        ]}
+        onScrollToFile={vi.fn()}
+        comments={[]}
+        reviewedFiles={new Set()}
+        onToggleReviewed={vi.fn()}
+        onToggleFolderReviewed={vi.fn()}
+        selectedFileIndex={null}
+        isNarratedView
+      />,
+    );
+
+    expect(screen.getByText('Files changed (3)')).toBeInTheDocument();
+    expect(screen.queryByTitle('src')).not.toBeInTheDocument();
+
+    const rows = screen.getAllByTitle(/^(src\/|README)/);
+    expect(rows.map((row) => row.getAttribute('title'))).toEqual([
+      'src/cli/index.ts',
+      'src/client/App.tsx',
+      'README.md',
+    ]);
+    expect(screen.getByText('1')).toBeInTheDocument();
+    expect(screen.getByText('3')).toBeInTheDocument();
+  });
+
+  it('dims the directory portion of narrated rows and keeps review affordances', () => {
+    const onScrollToFile = vi.fn();
+    const onToggleReviewed = vi.fn();
+    render(
+      <FileList
+        files={[createFile('src/cli/index.ts'), createFile('README.md')]}
+        onScrollToFile={onScrollToFile}
+        comments={[
+          {
+            id: 'thread-1',
+            file: 'README.md',
+            line: 1,
+            side: 'new',
+            createdAt: '2026-08-28T00:00:00.000Z',
+            updatedAt: '2026-08-28T00:00:00.000Z',
+            messages: [],
+          },
+        ]}
+        reviewedFiles={new Set(['README.md'])}
+        onToggleReviewed={onToggleReviewed}
+        onToggleFolderReviewed={vi.fn()}
+        selectedFileIndex={1}
+        isNarratedView
+      />,
+    );
+
+    const directorySpan = screen.getByTitle('src/cli/index.ts').children[0];
+    expect(directorySpan).toHaveClass('text-github-text-muted');
+
+    fireEvent.click(screen.getByTitle('README.md'));
+    expect(onScrollToFile).toHaveBeenCalledWith('README.md');
+
+    fireEvent.click(within(getTreeRow('README.md')).getByRole('checkbox'));
+    expect(onToggleReviewed).toHaveBeenCalledWith('README.md');
+
+    expect(getTreeRow('README.md')).toHaveClass('opacity-70');
+    expect(getTreeRow('README.md')).toHaveClass('bg-github-bg-tertiary');
+  });
+
+  it('filters narrated rows by path while keeping their sequence numbers', () => {
+    render(
+      <FileList
+        files={[
+          createFile('src/cli/index.ts'),
+          createFile('src/client/App.tsx'),
+          createFile('README.md'),
+        ]}
+        onScrollToFile={vi.fn()}
+        comments={[]}
+        reviewedFiles={new Set()}
+        onToggleReviewed={vi.fn()}
+        onToggleFolderReviewed={vi.fn()}
+        selectedFileIndex={null}
+        isNarratedView
+      />,
+    );
+
+    fireEvent.change(screen.getByPlaceholderText('Filter files...'), {
+      target: { value: 'client' },
+    });
+
+    expect(screen.queryByTitle('src/cli/index.ts')).not.toBeInTheDocument();
+    expect(screen.getByTitle('src/client/App.tsx')).toBeInTheDocument();
+    expect(screen.getByText('2')).toBeInTheDocument();
+    expect(screen.queryByText('1')).not.toBeInTheDocument();
+  });
 });

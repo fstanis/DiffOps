@@ -1,21 +1,29 @@
-import type { DiffCommentThread } from '../../types/diff';
+import type { DiffCommentThread, Narration } from '../../types/diff';
 
 import type { PickedDirectoryHandle } from '../gitEngine/walkDirectory';
 import { createMemoryKvStore, openIndexedDbKvStore, type KVStore } from './kvStore';
 
 const DATABASE_NAME = 'diffops-standalone';
 const COMMENT_SESSIONS_STORE = 'commentSessions';
+const NARRATIONS_STORE = 'narrations';
 const RECENT_DIFFS_STORE = 'recentDiffs';
 const RECENT_REPOS_STORE = 'recentRepos';
 const LAST_REPO_KEY = 'last';
 const RECENT_DIFF_LIMIT = 10;
-// v2 added recentRepos; raise again whenever a new store joins the list.
-const DATABASE_VERSION = 2;
+// v3 added narrations; raise again whenever a new store joins the list.
+const DATABASE_VERSION = 3;
 
 /** A persisted comment session: threads plus the version the next writer must base on. */
 export interface StoredCommentSession {
   threads: DiffCommentThread[];
   version: number;
+  updatedAt: string;
+}
+
+/** A narration persisted per comment session, invalidated by its fingerprint. */
+export interface StoredNarration {
+  narration: Narration;
+  fingerprint: string;
   updatedAt: string;
 }
 
@@ -86,6 +94,18 @@ export class StandaloneStore {
       .reduce((total, session) => total + session.value.threads.length, 0);
   }
 
+  async loadNarration(key: string): Promise<StoredNarration | undefined> {
+    return this.kv.get<StoredNarration>(NARRATIONS_STORE, key);
+  }
+
+  async saveNarration(key: string, narration: Narration, fingerprint: string): Promise<void> {
+    await this.kv.put<StoredNarration>(NARRATIONS_STORE, key, {
+      narration,
+      fingerprint,
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
   async recordRecentDiff(fileName: string, repositoryId: string, fileSize: number): Promise<void> {
     const key = `${repositoryId}:${fileName}`;
     const entries = await this.listRecentDiffEntries();
@@ -149,7 +169,7 @@ const openBestEffortStore = (): StandaloneStore => {
     return new StandaloneStore(
       openIndexedDbKvStore(
         DATABASE_NAME,
-        [COMMENT_SESSIONS_STORE, RECENT_DIFFS_STORE, RECENT_REPOS_STORE],
+        [COMMENT_SESSIONS_STORE, NARRATIONS_STORE, RECENT_DIFFS_STORE, RECENT_REPOS_STORE],
         { version: DATABASE_VERSION },
       ),
     );

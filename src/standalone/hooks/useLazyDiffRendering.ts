@@ -20,6 +20,12 @@ interface UseLazyDiffRenderingReturn {
   ensureFilesRenderedUpTo: (filePath: string) => void;
   registerLazyFileContainer: (filePath: string, node: HTMLDivElement | null) => void;
   scrollFileIntoDiffContainer: (filePath: string) => void;
+  /** Scrolls a narration card to the container top once the files above it render. */
+  scrollNarrationCardIntoView: (
+    cardElementId: string,
+    precedingFilePaths: string[],
+    targetFilePath: string,
+  ) => void;
   isFileScrolledPastContainerTop: (filePath: string) => boolean;
 }
 
@@ -191,15 +197,10 @@ export function useLazyDiffRendering({
     [diffScrollContainerRef],
   );
 
-  const scrollFileIntoDiffContainer = useCallback(
-    (filePath: string) => {
-      ensureFilesRenderedUpTo(filePath);
-
-      const targetIndex = diffData?.files.findIndex((file) => file.path === filePath) ?? -1;
-      const requiredSectionIds =
-        diffData && targetIndex >= 0
-          ? diffData.files.slice(0, targetIndex + 1).map((file) => getFileElementId(file.path))
-          : [getFileElementId(filePath)];
+  // Deferred placeholders are shorter than rendered content, so wait for the
+  // sections that determine the target's position before scrolling.
+  const scrollElementIntoDiffContainer = useCallback(
+    (elementId: string, requiredSectionIds: string[]) => {
       const requestId = scrollRequestIdRef.current + 1;
       scrollRequestIdRef.current = requestId;
 
@@ -213,9 +214,9 @@ export function useLazyDiffRendering({
         return true;
       };
 
-      const scrollToFile = () => {
+      const scrollElementToContainerTop = () => {
         const scrollContainer = diffScrollContainerRef.current;
-        const target = document.getElementById(getFileElementId(filePath));
+        const target = document.getElementById(elementId);
         if (!scrollContainer || !target) {
           return false;
         }
@@ -245,7 +246,7 @@ export function useLazyDiffRendering({
             return;
           }
 
-          if (!scrollToFile()) {
+          if (!scrollElementToContainerTop()) {
             if (attempts < SIDEBAR_SCROLL_MAX_ATTEMPTS) {
               attempts++;
               attemptScroll();
@@ -257,13 +258,42 @@ export function useLazyDiffRendering({
             if (scrollRequestIdRef.current !== requestId) {
               return;
             }
-            scrollToFile();
+            scrollElementToContainerTop();
           }, SIDEBAR_SCROLL_CORRECTION_DELAY_MS);
         });
       };
       attemptScroll();
     },
-    [diffData, diffScrollContainerRef, ensureFilesRenderedUpTo],
+    [diffScrollContainerRef],
+  );
+
+  const scrollFileIntoDiffContainer = useCallback(
+    (filePath: string) => {
+      ensureFilesRenderedUpTo(filePath);
+
+      const targetIndex = diffData?.files.findIndex((file) => file.path === filePath) ?? -1;
+      const requiredSectionIds =
+        diffData && targetIndex >= 0
+          ? diffData.files.slice(0, targetIndex + 1).map((file) => getFileElementId(file.path))
+          : [getFileElementId(filePath)];
+      scrollElementIntoDiffContainer(getFileElementId(filePath), requiredSectionIds);
+    },
+    [diffData, ensureFilesRenderedUpTo, scrollElementIntoDiffContainer],
+  );
+
+  const scrollNarrationCardIntoView = useCallback(
+    (cardElementId: string, precedingFilePaths: string[], targetFilePath: string) => {
+      // Placeholder swaps above the card shift its offset, so every
+      // preceding section must render before the scroll settles.
+      precedingFilePaths.forEach((path) => ensureFileRendered(path));
+      ensureFileRendered(targetFilePath);
+      const requiredSectionIds = [
+        ...precedingFilePaths.map((path) => getFileElementId(path)),
+        getFileElementId(targetFilePath),
+      ];
+      scrollElementIntoDiffContainer(cardElementId, requiredSectionIds);
+    },
+    [ensureFileRendered, scrollElementIntoDiffContainer],
   );
 
   useEffect(() => {
@@ -327,6 +357,7 @@ export function useLazyDiffRendering({
     ensureFilesRenderedUpTo,
     registerLazyFileContainer,
     scrollFileIntoDiffContainer,
+    scrollNarrationCardIntoView,
     isFileScrolledPastContainerTop,
   };
 }

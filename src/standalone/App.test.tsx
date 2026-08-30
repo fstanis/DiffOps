@@ -11,6 +11,7 @@ import type { BridgeEvent } from './bridgeEvents';
 import { useDiffComments } from './hooks/useDiffComments';
 import { useViewedFiles } from './hooks/useViewedFiles';
 import { useViewport } from './hooks/useViewport';
+import { buildChangesetFingerprint } from './utils/narrationFingerprint';
 
 // Mock the useViewport hook
 vi.mock('./hooks/useViewport', () => ({
@@ -1197,5 +1198,417 @@ describe('App Component - Mobile sidebar auto-close', () => {
     await waitFor(() => {
       expect(toggleButton).toHaveAttribute('aria-expanded', 'false');
     });
+  });
+});
+
+describe('App Component - Narrated review', () => {
+  const createChunk = (
+    oldText: string,
+    newText: string,
+  ): DiffResponse['files'][number]['chunks'][number] => ({
+    header: '@@ -1 +1 @@',
+    oldStart: 1,
+    oldLines: 1,
+    newStart: 1,
+    newLines: 1,
+    lines: [
+      { type: 'delete', content: oldText, oldLineNumber: 1 },
+      { type: 'add', content: newText, newLineNumber: 1 },
+    ],
+  });
+
+  const createNarrationFiles = (): DiffResponse['files'] =>
+    ['a.ts', 'b.ts', 'c.ts'].map((path) => ({
+      path,
+      status: 'modified' as const,
+      additions: 1,
+      deletions: 1,
+      chunks: [createChunk(`old ${path}`, `new ${path}`)],
+    }));
+
+  const createNarrationDiff = (): DiffResponse => ({
+    ...mockDiffResponse,
+    commit: 'abc123',
+    baseCommitish: 'HEAD^',
+    targetCommitish: 'HEAD',
+    requestedBaseCommitish: 'HEAD^',
+    requestedTargetCommitish: 'HEAD',
+    files: createNarrationFiles(),
+  });
+
+  const narrationPayload = {
+    intro: 'Renames the version constant and updates the docs.',
+    cards: [
+      { path: 'c.ts', narrative: 'Config first. Then read a.ts.' },
+      { path: 'a.ts', narrative: 'The consumer of c.ts.' },
+      { path: 'b.ts', narrative: 'Docs polish, keep it last.' },
+    ],
+    epilogue: 'Check the version bump stays consistent.',
+  };
+
+  interface NarrationSessionOptions {
+    statusEnabled?: boolean;
+    diff?: DiffResponse;
+    narration?: typeof narrationPayload;
+    storedNarration?: { narration: typeof narrationPayload; fingerprint: string } | null;
+    narrateHandler?: () => Promise<unknown>;
+  }
+
+  const programNarrationFetch = (options: NarrationSessionOptions = {}) => {
+    vi.mocked(global.fetch).mockImplementation(((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/ai-gateway/status')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            enabled: options.statusEnabled ?? true,
+            model: 'anthropic/claude-sonnet-5',
+            narrateModel: 'anthropic/claude-opus-5',
+          }),
+        } as Response);
+      }
+      if (url.includes('/api/revisions')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ specialOptions: [], branches: [], commits: [] }),
+        } as Response);
+      }
+      if (url.includes('/ai-gateway/narrate')) {
+        return options.narrateHandler
+          ? options.narrateHandler()
+          : Promise.resolve({
+              ok: true,
+              json: async () => ({ narration: options.narration ?? narrationPayload }),
+            } as Response);
+      }
+      if (url.includes('/api/narration') && (init?.method === 'PUT' || init?.method === 'POST')) {
+        return Promise.resolve({ ok: true, json: async () => ({ success: true }) } as Response);
+      }
+      if (url.includes('/api/narration')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ narration: options.storedNarration ?? null }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => options.diff ?? createNarrationDiff(),
+      } as Response);
+    }) as unknown as typeof fetch);
+  };
+
+  const getToggle = () => screen.getByRole('switch', { name: 'Toggle narrated view' });
+
+  const getDocumentFilePaths = () =>
+    Array.from(document.querySelectorAll('main [data-file-path]')).map(
+      (element) => (element as HTMLElement).dataset.filePath,
+    );
+
+  const getSidebarFilePaths = () =>
+    Array.from(document.querySelectorAll('#file-tree-panel [data-file-row="true"]')).map((row) => {
+      const titledSpans = row.querySelectorAll('span[title]');
+      return titledSpans[titledSpans.length - 1]?.getAttribute('title');
+    });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockComments = [];
+    mockConfirm.mockReturnValue(false);
+  });
+
+  it('generates on toggle, reorders the document, and interleaves the cards', async () => {
+    programNarrationFetch();
+    renderApp();
+
+    await screen.findByText('Files changed (3)');
+    fireEvent.click(getToggle());
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Narration — what this changeset does')).toHaveLength(1);
+    });
+    expect(getDocumentFilePaths()).toEqual(['c.ts', 'a.ts', 'b.ts']);
+    expect(getSidebarFilePaths()).toEqual(['c.ts', 'a.ts', 'b.ts']);
+
+    const cards = document.querySelectorAll('main [data-narration-card="true"]');
+    expect(cards).toHaveLength(5);
+
+    const intro = screen.getByText('Narration — what this changeset does').closest('section');
+    const firstFile = document.querySelector('main [data-file-path]');
+    expect(
+      intro && firstFile
+        ? intro.compareDocumentPosition(firstFile) & Node.DOCUMENT_POSITION_FOLLOWING
+        : false,
+    ).toBeTruthy();
+
+    expect(screen.getByText('Check the version bump stays consistent.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Regenerate narration' })).toBeInTheDocument();
+  });
+
+  it('renders the narrated sections above the target when jumping files with the keyboard', async () => {
+    // Git order f0..f9; the narrated order swaps the last two so f9 precedes
+    // f8 in the document while sitting beyond the initial render window.
+    const files = Array.from({ length: 10 }, (_, index) => ({
+      path: `f${index}.ts`,
+      status: 'modified' as const,
+      additions: 1,
+      deletions: 1,
+      chunks: [createChunk(`old ${index}`, `new ${index}`)],
+    }));
+    const cards = [
+      ...Array.from({ length: 8 }, (_, index) => ({
+        path: `f${index}.ts`,
+        narrative: `File ${index} narrative.`,
+      })),
+      { path: 'f9.ts', narrative: 'Rendered before the last file.' },
+      { path: 'f8.ts', narrative: 'The last narrated file.' },
+    ];
+    programNarrationFetch({
+      diff: { ...createNarrationDiff(), files },
+      narration: { intro: 'Intro.', cards, epilogue: 'Epilogue.' },
+    });
+    renderApp();
+
+    await screen.findByText('Files changed (10)');
+    fireEvent.click(getToggle());
+
+    await waitFor(() => {
+      expect(getDocumentFilePaths()).toEqual([
+        'f0.ts',
+        'f1.ts',
+        'f2.ts',
+        'f3.ts',
+        'f4.ts',
+        'f5.ts',
+        'f6.ts',
+        'f7.ts',
+        'f9.ts',
+        'f8.ts',
+      ]);
+    });
+    expect(screen.getAllByText('Deferred Rendering')).toHaveLength(2);
+
+    // happy-dom reports Shift+BracketRight as key "]", so the browser-accurate
+    // "}" key is dispatched directly for the jump-to-last-file hotkey.
+    fireEvent.keyDown(document, { key: '}', code: 'BracketRight', shiftKey: true });
+
+    await waitFor(() => {
+      expect(screen.queryAllByText('Deferred Rendering')).toHaveLength(0);
+    });
+  });
+
+  it('keeps git order and shows a spinner while generating', async () => {
+    let resolveNarrate: ((value: unknown) => void) | null = null;
+    const deferred = new Promise((resolve) => {
+      resolveNarrate = resolve;
+    });
+    programNarrationFetch({
+      narrateHandler: () =>
+        deferred.then(
+          () => ({ ok: true, json: async () => ({ narration: narrationPayload }) }) as Response,
+        ),
+    });
+    renderApp();
+
+    await screen.findByText('Files changed (3)');
+    fireEvent.click(getToggle());
+
+    expect(await screen.findByRole('status')).toBeInTheDocument();
+    expect(getDocumentFilePaths()).toEqual(['a.ts', 'b.ts', 'c.ts']);
+    expect(screen.queryByText('Narration — what this changeset does')).not.toBeInTheDocument();
+
+    await act(async () => {
+      resolveNarrate?.(undefined);
+    });
+
+    await waitFor(() => {
+      expect(getDocumentFilePaths()).toEqual(['c.ts', 'a.ts', 'b.ts']);
+    });
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('caches the narration and toggles back to git order without regenerating', async () => {
+    programNarrationFetch();
+    renderApp();
+
+    await screen.findByText('Files changed (3)');
+    fireEvent.click(getToggle());
+    await waitFor(() => {
+      expect(getDocumentFilePaths()).toEqual(['c.ts', 'a.ts', 'b.ts']);
+    });
+
+    const narrateCalls = () =>
+      vi
+        .mocked(global.fetch)
+        .mock.calls.filter(([url]) => String(url).includes('/ai-gateway/narrate')).length;
+    expect(narrateCalls()).toBe(1);
+
+    fireEvent.click(getToggle());
+    await waitFor(() => {
+      expect(getDocumentFilePaths()).toEqual(['a.ts', 'b.ts', 'c.ts']);
+    });
+    expect(screen.queryByText('Narration — what this changeset does')).not.toBeInTheDocument();
+
+    fireEvent.click(getToggle());
+    await waitFor(() => {
+      expect(getDocumentFilePaths()).toEqual(['c.ts', 'a.ts', 'b.ts']);
+    });
+    expect(narrateCalls()).toBe(1);
+  });
+
+  it('applies a matching cached narration instantly and rejects a stale one', async () => {
+    const diff = createNarrationDiff();
+    const fingerprint = buildChangesetFingerprint(diff.commit, diff.files);
+    programNarrationFetch({
+      diff,
+      storedNarration: { narration: narrationPayload, fingerprint },
+    });
+    renderApp();
+
+    await screen.findByText('Files changed (3)');
+    fireEvent.click(getToggle());
+
+    await waitFor(() => {
+      expect(getDocumentFilePaths()).toEqual(['c.ts', 'a.ts', 'b.ts']);
+    });
+    const instantCalls = vi
+      .mocked(global.fetch)
+      .mock.calls.filter(([url]) => String(url).includes('/ai-gateway/narrate')).length;
+    expect(instantCalls).toBe(0);
+  });
+
+  it('regenerates a stale cached narration instead of applying it', async () => {
+    programNarrationFetch({
+      storedNarration: { narration: narrationPayload, fingerprint: 'outdated-fingerprint' },
+    });
+    renderApp();
+
+    await screen.findByText('Files changed (3)');
+    fireEvent.click(getToggle());
+
+    await waitFor(() => {
+      expect(getDocumentFilePaths()).toEqual(['c.ts', 'a.ts', 'b.ts']);
+    });
+    const narrateCalls = vi
+      .mocked(global.fetch)
+      .mock.calls.filter(([url]) => String(url).includes('/ai-gateway/narrate')).length;
+    expect(narrateCalls).toBe(1);
+  });
+
+  it('navigates cross-reference links to the referenced file card', async () => {
+    programNarrationFetch();
+    renderApp();
+
+    await screen.findByText('Files changed (3)');
+    fireEvent.click(getToggle());
+    const link = await screen.findByRole('link', { name: 'a.ts' });
+    expect(link).toHaveAttribute('href', '#narrate:a.ts');
+
+    const main = document.querySelector('main') as HTMLElement;
+    const scrollToSpy = vi.spyOn(main, 'scrollTo');
+
+    fireEvent.click(link);
+
+    await waitFor(() => {
+      const selectedRow = document.querySelector(
+        '#file-tree-panel [data-file-row].bg-github-bg-tertiary',
+      );
+      expect(selectedRow?.querySelector('span[title]')?.getAttribute('title')).toBe('a.ts');
+    });
+    await waitFor(() => {
+      expect(scrollToSpy).toHaveBeenCalled();
+    });
+  });
+
+  it('surfaces the generation error with a retry on the toggle', async () => {
+    let shouldFail = true;
+    programNarrationFetch({
+      narrateHandler: () =>
+        shouldFail
+          ? Promise.resolve({
+              ok: false,
+              json: async () => ({ error: 'Narration request failed (502)' }),
+            } as Response)
+          : Promise.resolve({
+              ok: true,
+              json: async () => ({ narration: narrationPayload }),
+            } as Response),
+    });
+    renderApp();
+
+    await screen.findByText('Files changed (3)');
+    fireEvent.click(getToggle());
+
+    expect(await screen.findByText('Narration request failed (502)')).toBeInTheDocument();
+    expect(getDocumentFilePaths()).toEqual(['a.ts', 'b.ts', 'c.ts']);
+
+    shouldFail = false;
+    fireEvent.click(screen.getByRole('button', { name: 'Retry narration' }));
+
+    await waitFor(() => {
+      expect(getDocumentFilePaths()).toEqual(['c.ts', 'a.ts', 'b.ts']);
+    });
+  });
+
+  it('disables the toggle with the server reason when the gateway is unreachable', async () => {
+    mockFetch(mockDiffResponse);
+    renderApp();
+
+    const toggle = await screen.findByRole('switch', { name: 'Toggle narrated view' });
+    expect(toggle).toBeDisabled();
+    expect(toggle).toHaveAttribute(
+      'title',
+      'Narration needs the diffops server — it is offline or not serving this app',
+    );
+  });
+
+  it('disables the toggle with the API key reason when the gateway key is missing', async () => {
+    programNarrationFetch({ statusEnabled: false });
+    renderApp();
+
+    const toggle = await screen.findByRole('switch', { name: 'Toggle narrated view' });
+    expect(toggle).toBeDisabled();
+    expect(toggle).toHaveAttribute(
+      'title',
+      'Set the AI_GATEWAY_API_KEY environment variable to enable narration',
+    );
+  });
+
+  it('disables the toggle with a size refusal when the changeset exceeds the narrate cap', async () => {
+    // The large file sits past the initial render window so the test never
+    // renders its lines; only its prompt size matters.
+    const smallFiles = Array.from({ length: 8 }, (_, index) => ({
+      path: `f${index}.ts`,
+      status: 'modified' as const,
+      additions: 1,
+      deletions: 1,
+      chunks: [createChunk(`old ${index}`, `new ${index}`)],
+    }));
+    const largeFile: DiffResponse['files'][number] = {
+      path: 'big.ts',
+      status: 'modified' as const,
+      additions: 1,
+      deletions: 1,
+      chunks: [
+        {
+          header: '@@ -1 +1 @@',
+          oldStart: 1,
+          oldLines: 1,
+          newStart: 1,
+          newLines: 1,
+          lines: [
+            { type: 'delete', content: 'x'.repeat(600 * 1024), oldLineNumber: 1 },
+            { type: 'add', content: 'y'.repeat(600 * 1024), newLineNumber: 1 },
+          ],
+        },
+      ],
+    };
+    programNarrationFetch({
+      diff: { ...createNarrationDiff(), files: [...smallFiles, largeFile] },
+    });
+    renderApp();
+
+    const toggle = await screen.findByRole('switch', { name: 'Toggle narrated view' });
+    expect(toggle).toBeDisabled();
+    expect(toggle).toHaveAttribute('title', 'Changeset too large to narrate');
   });
 });

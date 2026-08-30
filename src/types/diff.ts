@@ -74,6 +74,20 @@ export interface GeneratedStatusResponse {
 export interface ExplainStatusResponse {
   enabled: boolean;
   model: string;
+  /** Names the model that would narrate; absent on servers predating narration. */
+  narrateModel?: string;
+}
+
+/** One narration card: the file's narrative; card order is the review order. */
+interface NarrationCard {
+  path: string;
+  narrative: string;
+}
+
+export interface Narration {
+  intro: string;
+  cards: NarrationCard[];
+  epilogue: string;
 }
 
 export type LineNumber = number | [number, number];

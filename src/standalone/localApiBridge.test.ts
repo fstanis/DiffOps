@@ -229,6 +229,72 @@ describe('installLocalApiBridge', () => {
     expect(sameData.threads.map((thread) => thread.id)).toEqual(['thread-1']);
   });
 
+  it('round-trips narrations under the comment session key', async () => {
+    install().setDiff(makeSource());
+
+    const empty = (await (await fetch('/api/narration')).json()) as { narration: unknown };
+    expect(empty.narration).toBeNull();
+
+    const put = await fetch('/api/narration', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        narration: {
+          intro: 'Adds a flag.',
+          cards: [{ path: 'src/app.ts', narrative: 'The whole change.' }],
+          epilogue: 'None.',
+        },
+        fingerprint: 'fingerprint-1',
+      }),
+    });
+    expect(put.ok).toBe(true);
+
+    const stored = (await (await fetch('/api/narration')).json()) as {
+      narration: { narration: { intro: string }; fingerprint: string } | null;
+    };
+    expect(stored.narration?.fingerprint).toBe('fingerprint-1');
+    expect(stored.narration?.narration.intro).toBe('Adds a flag.');
+  });
+
+  it('rejects invalid narration payloads', async () => {
+    install().setDiff(makeSource());
+
+    const put = await fetch('/api/narration', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ narration: { intro: 'no cards' }, fingerprint: '' }),
+    });
+    expect(put.status).toBe(400);
+  });
+
+  it('persists narrations across bridge reinstalls via the store', async () => {
+    const store = new StandaloneStore(createMemoryKvStore());
+    const narration = {
+      intro: 'Adds a flag.',
+      cards: [{ path: 'src/app.ts', narrative: 'The whole change.' }],
+      epilogue: 'None.',
+    };
+
+    const first = installLocalApiBridge({ store });
+    first.setDiff(makeSource());
+    await fetch('/api/narration', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ narration, fingerprint: 'fingerprint-1' }),
+    });
+    first.restore();
+
+    const second = installLocalApiBridge({ store });
+    second.setDiff(makeSource());
+    bridge = second;
+
+    const stored = (await (await fetch('/api/narration')).json()) as {
+      narration: { narration: typeof narration; fingerprint: string } | null;
+    };
+    expect(stored.narration?.fingerprint).toBe('fingerprint-1');
+    expect(stored.narration?.narration).toEqual(narration);
+  });
+
   it('merges exported-format comment imports and bumps the version', async () => {
     install().setDiff(makeSource());
 

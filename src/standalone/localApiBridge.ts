@@ -1,4 +1,4 @@
-import type { DiffCommentThread, DiffResponse } from '../types/diff';
+import type { DiffCommentThread, DiffResponse, Narration } from '../types/diff';
 import {
   mergeCommentImports,
   mergeCommentThreads,
@@ -13,6 +13,7 @@ import {
   buildCommentSessionKey,
   getStandaloneStore,
   type StandaloneStore,
+  type StoredNarration,
 } from './persistence/standaloneStore';
 import {
   loadStandaloneClientSettings,
@@ -133,9 +134,8 @@ export const installLocalApiBridge = (options: LocalApiBridgeOptions = {}): Loca
   let lastCommentQuery: string | null = null;
   const sessions = new Map<string, CommentSessionState>();
 
-  // The flag's presence is the viewer's signal that the active source is a
-  // plain diff file with no repository behind it (see useFileExplain); it
-  // disables affordances that need blob or repository endpoints.
+  // Signals the viewer that the active source has no repository behind it,
+  // disabling affordances that need blob or repository endpoints.
   const setDiffFileMode = (isDiffFileMode: boolean): void => {
     diffFileModeWindow.__DIFFOPS_DIFF_FILE_MODE__ = isDiffFileMode;
   };
@@ -144,10 +144,9 @@ export const installLocalApiBridge = (options: LocalApiBridgeOptions = {}): Loca
   const activeRepository = (): ActiveRepository | null =>
     current?.kind === 'repo' ? current.repository : null;
 
+  // "stdin" pseudo-refs carry the CLI stdin mode's degraded semantics.
   const buildDiffPayload = (diff: DiffResponse, source: StandaloneDiffSource): DiffResponse => ({
     ...diff,
-    // "stdin" pseudo-refs give the viewer the same degraded semantics as the
-    // CLI's stdin mode: no whole-file view, no blob/line-count endpoints.
     baseCommitish: 'stdin',
     targetCommitish: 'stdin',
     requestedBaseCommitish: 'stdin',
@@ -253,8 +252,8 @@ export const installLocalApiBridge = (options: LocalApiBridgeOptions = {}): Loca
     const session = await loadSession(key);
     const nextThreads = payload.threads as DiffCommentThread[];
     const baseVersion = payload.baseVersion;
-    // Stale baseVersion means another writer changed comments since the
-    // client's last read, so merge rather than overwrite (server parity).
+    // A stale baseVersion means another writer changed comments; merge rather
+    // than overwrite (server parity).
     const isStale = typeof baseVersion === 'number' && baseVersion !== session.version;
     const resolvedThreads = isStale
       ? mergeCommentThreads(session.threads, nextThreads).threads
@@ -281,9 +280,8 @@ export const installLocalApiBridge = (options: LocalApiBridgeOptions = {}): Loca
     });
   };
 
-  // Accepts both the CLI's CommentImport[] payload (server parity) and the
-  // { threads } file the standalone app's own export produces, so an export
-  // round-trips into a fresh session.
+  // Accepts the CLI's CommentImport[] payload (server parity) and the app's
+  // own { threads } export, so an export round-trips into a fresh session.
   const handleCommentImportsPost = async (
     init: RequestInit | undefined,
     key: string,
@@ -352,6 +350,52 @@ export const installLocalApiBridge = (options: LocalApiBridgeOptions = {}): Loca
 
     const client = saveStandaloneClientSettings(patch);
     return jsonResponse({ version: 1, client });
+  };
+
+  const handleNarrationGet = async (key: string): Promise<Response> => {
+    let stored: StoredNarration | undefined;
+    try {
+      stored = await store.loadNarration(key);
+    } catch (error) {
+      console.warn('diffops: failed to load persisted narration:', error);
+    }
+    return jsonResponse({ narration: stored ?? null });
+  };
+
+  const handleNarrationPut = async (
+    init: RequestInit | undefined,
+    key: string,
+  ): Promise<Response> => {
+    let payload: { narration?: unknown; fingerprint?: unknown } | null = null;
+    try {
+      const parsed = parseThreadsPayload(init);
+      if (isPlainObject(parsed)) {
+        payload = parsed as { narration?: unknown; fingerprint?: unknown };
+      }
+    } catch {
+      payload = null;
+    }
+
+    const narration = isPlainObject(payload?.narration) ? payload.narration : null;
+    const fingerprint = payload?.fingerprint;
+    const isValidPayload =
+      narration !== null &&
+      typeof narration.intro === 'string' &&
+      typeof narration.epilogue === 'string' &&
+      Array.isArray(narration.cards) &&
+      typeof fingerprint === 'string' &&
+      fingerprint.length > 0;
+    if (!isValidPayload) {
+      return jsonResponse({ error: 'Invalid narration payload' }, 400);
+    }
+
+    try {
+      await store.saveNarration(key, narration as unknown as Narration, fingerprint);
+    } catch (error) {
+      console.warn('diffops: failed to persist narration:', error);
+      return jsonResponse({ error: 'Failed to persist narration' }, 500);
+    }
+    return jsonResponse({ success: true });
   };
 
   const handleRepoDiff = async (
@@ -533,9 +577,16 @@ export const installLocalApiBridge = (options: LocalApiBridgeOptions = {}): Loca
       return handleCommentImportsPost(init, commentSessionKey(requestUrl));
     }
 
-    // /ai-gateway/* is not /api/* traffic: explain probes and requests pass
-    // through to the real network so the feature works exactly when the diffops
-    // server is hosting the app.
+    if (requestUrl.pathname === '/api/narration') {
+      const key = commentSessionKey(requestUrl);
+      if (init?.method === 'PUT' || init?.method === 'POST') {
+        return handleNarrationPut(init, key);
+      }
+      return handleNarrationGet(key);
+    }
+
+    // /ai-gateway/* passes through to the real network so the AI features
+    // work exactly when the diffops server is hosting the app.
 
     if (requestUrl.pathname === '/api/user-settings') {
       if (init?.method === 'PUT') {

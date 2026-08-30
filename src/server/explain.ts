@@ -10,10 +10,7 @@ export function isExplainConfigured(): boolean {
   return Boolean(process.env.AI_GATEWAY_API_KEY?.trim());
 }
 
-// The model is a plain gateway model string (e.g. `anthropic/claude-sonnet-5`);
-// the AI SDK routes it through the Vercel AI Gateway using the
-// AI_GATEWAY_API_KEY environment variable. Owners override it with the
-// DIFFOPS_EXPLAIN_MODEL environment variable.
+/** Resolves the explain model from DIFFOPS_EXPLAIN_MODEL, defaulting to Sonnet. */
 export function resolveExplainModel(): string {
   return process.env.DIFFOPS_EXPLAIN_MODEL?.trim() || DEFAULT_EXPLAIN_MODEL;
 }
@@ -36,10 +33,9 @@ export function validateExplainPrompt(value: unknown): ExplainPromptValidation {
   return { ok: true, prompt: value };
 }
 
-// Anthropic models must be served through the Google Vertex AI deployment.
-// `only` is a hard allowlist of provider slugs: the gateway fails the request
-// outright rather than falling back to Anthropic-direct or Bedrock.
-const VERTEX_ANTHROPIC_ONLY = { gateway: { only: ['vertexAnthropic'] } };
+// Anthropic models must be served through the Google Vertex AI deployment;
+// `only` fails the request outright rather than falling back to another route.
+export const VERTEX_ANTHROPIC_ONLY = { gateway: { only: ['vertexAnthropic'] } };
 
 export async function generateExplanation(prompt: string, model: string): Promise<string> {
   const { text } = await generateText({

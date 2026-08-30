@@ -213,12 +213,17 @@ function StandaloneApp({ createEngine }: StandaloneAppProps) {
           openedAt: new Date().toISOString(),
           handle,
         };
-        try {
-          await getStandaloneStore().saveLastRepo(entry);
-          setLastRepo(entry);
-        } catch {
-          // Recording the last repo is best-effort.
-        }
+        // Recording is best-effort and must not hold the busy overlay: a wedged
+        // persistence layer (a blocked IndexedDB upgrade) must not keep the
+        // app "preparing" forever.
+        void getStandaloneStore()
+          .saveLastRepo(entry)
+          .then(() => {
+            setLastRepo(entry);
+          })
+          .catch(() => {
+            // Recording the last repo is best-effort.
+          });
       } catch (openError) {
         setErrorMessage(
           openError instanceof Error ? openError.message : `Failed to open "${handle.name}"`,

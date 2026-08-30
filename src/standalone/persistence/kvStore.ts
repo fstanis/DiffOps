@@ -72,6 +72,11 @@ export interface OpenKvStoreOptions {
   version?: number;
 }
 
+// An upgrade waits for every other tab to release the old version; a tab that
+// never closes would wedge every store operation forever, so a stuck open
+// fails loudly instead and the next operation retries.
+const OPEN_BLOCKED_TIMEOUT_MS = 5_000;
+
 /** Opens (creating on first use) an IndexedDB database exposing the given stores as a KVStore. */
 export const openIndexedDbKvStore = (
   databaseName: string,
@@ -96,11 +101,40 @@ export const openIndexedDbKvStore = (
           }
         }
       };
-      request.onsuccess = () => {
-        database = request.result;
-        resolve(request.result);
+      request.onblocked = () => {
+        console.warn(
+          `diffops: upgrading IndexedDB "${databaseName}" is blocked by another tab; close it to continue`,
+        );
       };
-      request.onerror = () => reject(request.error);
+      const timeoutId = setTimeout(() => {
+        opening = null;
+        reject(
+          new Error(
+            `opening IndexedDB "${databaseName}" timed out — another tab may hold an older version; close it and retry`,
+          ),
+        );
+      }, OPEN_BLOCKED_TIMEOUT_MS);
+      const settleOpen = () => {
+        clearTimeout(timeoutId);
+        const db = request.result;
+        // Another tab wants to upgrade; releasing the connection promptly is
+        // what unblocks it, and the next operation here reopens transparently.
+        db.onversionchange = () => {
+          db.close();
+          if (database === db) {
+            database = null;
+            opening = null;
+          }
+        };
+        database = db;
+        resolve(db);
+      };
+      request.onsuccess = settleOpen;
+      request.onerror = () => {
+        clearTimeout(timeoutId);
+        opening = null;
+        reject(request.error);
+      };
     });
     return opening;
   };

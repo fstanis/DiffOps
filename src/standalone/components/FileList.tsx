@@ -28,6 +28,8 @@ interface FileListProps {
   onToggleReviewed: (path: string) => void;
   onToggleFolderReviewed: (path: string, reviewed: boolean) => void;
   selectedFileIndex: number | null;
+  /** Renders the numbered flat narrated list instead of the directory tree. */
+  isNarratedView?: boolean;
 }
 
 interface TreeNode {
@@ -121,20 +123,18 @@ function buildFileTree(files: DiffFile[]): TreeNode {
     }
   });
 
-  // Collapse single child directories
+  // Collapses single-child directory chains into one combined name.
   const collapseDirectories = (node: TreeNode): TreeNode => {
     if (!node.isDirectory || !node.children) {
       return node;
     }
 
-    // First, recursively collapse children
     node.children = node.children.map(collapseDirectories);
 
-    // If this directory has only one child directory (no files), collapse them
     if (node.children.length === 1 && node.children[0]?.isDirectory && node.children[0]?.children) {
       const child = node.children[0];
       if (child) {
-        // Don't collapse the root node - keep the full path structure
+        // The root keeps the full path structure.
         if (!node.name) {
           return node;
         }
@@ -162,6 +162,7 @@ export const FileList = memo(function FileList({
   onToggleReviewed,
   onToggleFolderReviewed,
   selectedFileIndex,
+  isNarratedView = false,
 }: FileListProps) {
   const fileTree = useMemo(() => buildFileTree(files), [files]);
   const shouldUseStickyDirectoryHeaders = useMemo(
@@ -174,7 +175,6 @@ export const FileList = memo(function FileList({
     '--dir-row-height': 'calc(var(--spacing, 0.25rem) * 9)',
   } as CSSProperties;
 
-  // Initialize with all directories expanded
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(
     () => new Set(getAllDirectoryPaths(fileTree)),
   );
@@ -211,7 +211,6 @@ export const FileList = memo(function FileList({
     [fileTree, reviewedFiles],
   );
 
-  // Filter the file tree based on search text
   const filteredFileTree = useMemo(() => {
     const normalizedFilter = filterText.trim().toLowerCase();
 
@@ -228,7 +227,6 @@ export const FileList = memo(function FileList({
         }
         return null;
       } else if (node.file) {
-        // Check if file name matches filter
         if (node.file.path.toLowerCase().includes(normalizedFilter)) {
           return node;
         }
@@ -275,7 +273,6 @@ export const FileList = memo(function FileList({
   const isAllExpanded = expandedDirs.size === allPaths.length && allPaths.length > 0;
 
   const toggleAllDirectories = () => {
-    // If all directories are expanded, collapse all. Otherwise, expand all.
     if (isAllExpanded) {
       setExpandedDirs(new Set());
     } else {
@@ -447,6 +444,68 @@ export const FileList = memo(function FileList({
     return null;
   };
 
+  const renderNarratedRow = (file: DiffFile): React.ReactNode => {
+    const commentCount = commentCountMap.get(file.path) ?? 0;
+    const isReviewed = reviewedFiles.has(file.path);
+    const fileIndex = fileIndexMap.get(file.path) ?? -1;
+    const isSelected = selectedFileIndex !== null && selectedFileIndex === fileIndex;
+    const separatorIndex = file.path.lastIndexOf('/');
+    const directory = separatorIndex === -1 ? '' : `${file.path.slice(0, separatorIndex + 1)}`;
+    const name = separatorIndex === -1 ? file.path : file.path.slice(separatorIndex + 1);
+
+    return (
+      <div
+        key={`file:${file.path}`}
+        className={`flex items-center gap-2 px-4 py-2 hover:bg-github-bg-tertiary cursor-pointer transition-colors ${
+          isReviewed ? 'opacity-70' : ''
+        } ${isSelected ? 'bg-github-bg-tertiary' : ''}`}
+        data-file-row="true"
+        data-tree-row="true"
+        data-depth={0}
+        onClick={() => {
+          onScrollToFile(file.path);
+          onFileSelected?.();
+        }}
+      >
+        <span className="w-6 shrink-0 text-right text-xs text-github-text-muted select-none">
+          {fileIndex + 1}
+        </span>
+        <Checkbox
+          checked={isReviewed}
+          onChange={() => {
+            onToggleReviewed(file.path);
+          }}
+          title={isReviewed ? 'Mark as not reviewed' : 'Mark as reviewed'}
+          className="z-10"
+        />
+        {getFileIcon(file.status)}
+        <span
+          className={`text-sm text-github-text-primary flex-1 overflow-hidden text-ellipsis whitespace-nowrap ${
+            isReviewed ? 'line-through text-github-text-muted' : ''
+          }`}
+          title={file.path}
+        >
+          {directory && <span className="text-github-text-muted">{directory}</span>}
+          <span>{name}</span>
+        </span>
+        {commentCount > 0 && (
+          <span className="text-github-warning text-sm font-medium ml-auto flex items-center gap-1">
+            <MessageSquare size={14} />
+            {commentCount}
+          </span>
+        )}
+      </div>
+    );
+  };
+
+  const filteredNarratedFiles = useMemo(() => {
+    const normalizedFilter = filterText.trim().toLowerCase();
+    if (!normalizedFilter) {
+      return files;
+    }
+    return files.filter((file) => file.path.toLowerCase().includes(normalizedFilter));
+  }, [files, filterText]);
+
   return (
     <div className="h-full flex flex-col">
       <div className="px-4 py-3 border-b border-github-border bg-github-bg-tertiary">
@@ -463,17 +522,19 @@ export const FileList = memo(function FileList({
               <span className="text-github-accent">+{diffTotals.additions}</span>
               <span className="text-github-danger">-{diffTotals.deletions}</span>
             </span>
-            <button
-              onClick={toggleAllDirectories}
-              className="p-1 hover:bg-github-bg-primary rounded transition-colors"
-              title={isAllExpanded ? 'Collapse all' : 'Expand all'}
-            >
-              {isAllExpanded ? (
-                <ChevronsDownUp size={16} className="text-github-text-secondary" />
-              ) : (
-                <ChevronsUpDown size={16} className="text-github-text-secondary" />
-              )}
-            </button>
+            {!isNarratedView && (
+              <button
+                onClick={toggleAllDirectories}
+                className="p-1 hover:bg-github-bg-primary rounded transition-colors"
+                title={isAllExpanded ? 'Collapse all' : 'Expand all'}
+              >
+                {isAllExpanded ? (
+                  <ChevronsDownUp size={16} className="text-github-text-secondary" />
+                ) : (
+                  <ChevronsUpDown size={16} className="text-github-text-secondary" />
+                )}
+              </button>
+            )}
           </div>
         </div>
         <div className="relative">
@@ -496,7 +557,9 @@ export const FileList = memo(function FileList({
         style={stickyContainerStyle}
         ref={scrollContainerRef}
       >
-        {filteredFileTree.children?.map((child) => renderTreeNode(child))}
+        {isNarratedView
+          ? filteredNarratedFiles.map((file) => renderNarratedRow(file))
+          : filteredFileTree.children?.map((child) => renderTreeNode(child))}
       </div>
     </div>
   );

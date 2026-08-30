@@ -1,11 +1,10 @@
 import { type DiffFile, type DiffLine } from '../types/diff';
 
-// ~50k tokens: comfortably inside the model's context window while keeping
-// per-click latency and cost predictable. The server rejects larger payloads,
-// and the client disables the Explain button up front at the same threshold.
+// ~50k tokens; the server rejects larger payloads and the client disables the
+// Explain button up front at the same threshold.
 export const EXPLAIN_PROMPT_MAX_BYTES = 200 * 1024;
 
-// Default explain model; owners can override it via the persisted user config.
+/** Default explain model; owners override it with DIFFOPS_EXPLAIN_MODEL. */
 export const DEFAULT_EXPLAIN_MODEL = 'anthropic/claude-sonnet-5';
 
 export interface ExplainPromptContext {
@@ -16,6 +15,7 @@ export interface ExplainPromptContext {
 
 const textEncoder = new TextEncoder();
 
+/** Measures a prompt in UTF-8 bytes — the unit both client and server cap. */
 export function measureExplainPromptBytes(prompt: string): number {
   return textEncoder.encode(prompt).length;
 }
@@ -71,7 +71,8 @@ function buildNewFileContent(file: DiffFile): string {
     .join('\n');
 }
 
-const formatChangedFileList = (files: DiffFile[]): string =>
+/** Lists the changeset's files with status and rename notes, one `- ` line each. */
+export const formatChangedFileList = (files: DiffFile[]): string =>
   files
     .map((file) => {
       if (file.status === 'renamed' && file.oldPath && file.oldPath !== file.path) {
@@ -90,7 +91,8 @@ function buildChangesetHeader(context: ExplainPromptContext): string {
   return lines.join('\n');
 }
 
-function buildFileSection(file: DiffFile): string {
+/** Formats one changed file's diff as a titled markdown section for prompts. */
+export function buildFileSection(file: DiffFile): string {
   const statusSuffix =
     file.status === 'renamed' && file.oldPath && file.oldPath !== file.path
       ? ` (renamed from ${file.oldPath})`

@@ -1,6 +1,7 @@
-import { renderHook } from '@testing-library/react';
+import { renderHook, act } from '@testing-library/react';
 import { describe, it, expect, afterEach } from 'bun:test';
 
+import type { DiffResponse } from '../../types/diff';
 import { getFileElementId } from '../utils/domUtils';
 
 import { useLazyDiffRendering } from './useLazyDiffRendering';
@@ -77,6 +78,49 @@ describe('useLazyDiffRendering', () => {
 
       const { result } = renderLazyDiffRendering(container);
       expect(result.current.isFileScrolledPastContainerTop('missing/file.ts')).toBe(false);
+    });
+  });
+
+  describe('scrollNarrationCardIntoView', () => {
+    it('renders the sections preceding the card so their placeholder swap cannot shift it', () => {
+      const files = Array.from({ length: 10 }, (_, index) => ({
+        path: `src/file-${index}.ts`,
+        status: 'modified' as const,
+        additions: 1,
+        deletions: 1,
+        chunks: [],
+      }));
+      const diffData = { targetCommitish: 'stdin', files } as unknown as DiffResponse;
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+
+      const { result } = renderHook(() =>
+        useLazyDiffRendering({
+          diffData,
+          diffScrollContainerRef: { current: container },
+          setDiffData: () => {},
+        }),
+      );
+
+      expect(result.current.renderedFilePaths.has('src/file-8.ts')).toBe(false);
+      expect(result.current.renderedFilePaths.has('src/file-9.ts')).toBe(false);
+
+      const originalRequestAnimationFrame = window.requestAnimationFrame;
+      window.requestAnimationFrame = () => 0;
+      try {
+        act(() => {
+          result.current.scrollNarrationCardIntoView(
+            `narration-card-${getFileElementId('src/file-9.ts')}`,
+            ['src/file-8.ts'],
+            'src/file-9.ts',
+          );
+        });
+      } finally {
+        window.requestAnimationFrame = originalRequestAnimationFrame;
+      }
+
+      expect(result.current.renderedFilePaths.has('src/file-8.ts')).toBe(true);
+      expect(result.current.renderedFilePaths.has('src/file-9.ts')).toBe(true);
     });
   });
 });

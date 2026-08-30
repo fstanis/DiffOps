@@ -45,6 +45,8 @@ export interface UseKeyboardNavigationProps {
   onRefresh?: () => void;
   isModalOpen?: boolean;
   getHoveredFileIndex?: () => number | null;
+  /** Anchors file-level jumps (], [, {, }, shift+v) to a section start instead of the first diff line. */
+  onScrollToFile?: (filePath: string) => void;
 }
 
 /**
