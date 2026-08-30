@@ -81,7 +81,8 @@ const asyncNoop = async () => {};
 
 const baseProps: Omit<DiffViewerBodyProps, 'file'> = {
   threads: [],
-  diffMode: 'current',
+  viewMode: 'full',
+  onViewModeChange: noop,
   targetCommitish: 'HEAD',
   mergedChunks: [],
   isExpandLoading: false,
@@ -111,7 +112,7 @@ const mockBlobFetch = (handler: (url: string) => Promise<Response>) => {
   (global.fetch as any).mockImplementation((url: string) => handler(url));
 };
 
-describe('TextDiffViewer current mode', () => {
+describe('TextDiffViewer full mode', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });

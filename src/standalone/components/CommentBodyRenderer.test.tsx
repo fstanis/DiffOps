@@ -140,4 +140,28 @@ describe('CommentBodyRenderer', () => {
     expect(container.querySelector('em')).toHaveTextContent('After');
     expect(container).toHaveTextContent('new code');
   });
+
+  it('renders no blank spacer lines inside list items with nested lists', () => {
+    // list items render with whitespace-pre-wrap, so any whitespace-only text
+    // node react-markdown leaves between an item and its nested list would
+    // show as a blank line.
+    const { container } = render(
+      <CommentBodyRenderer
+        body={
+          '- **`parse`** — Turns samples into beats.\n  - In: samples\n  - Out: beats\n- **`MAX`** — Longest gap.'
+        }
+      />,
+    );
+
+    const listItems = container.querySelectorAll('li');
+    expect(listItems).toHaveLength(4);
+    for (const listItem of listItems) {
+      const spacerNodes = Array.from(listItem.childNodes).filter(
+        (node) => node.nodeType === Node.TEXT_NODE && node.textContent?.trim() === '',
+      );
+      expect(spacerNodes).toHaveLength(0);
+    }
+    expect(listItems[0]).toHaveTextContent('In: samples');
+    expect(listItems[0]).toHaveTextContent('Out: beats');
+  });
 });

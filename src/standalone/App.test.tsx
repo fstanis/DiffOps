@@ -1,10 +1,10 @@
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 import { HotkeysProvider } from 'react-hotkeys-hook';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'bun:test';
 import '@testing-library/jest-dom';
 
 import { mockFetch } from '../testing/preload';
-import type { DiffCommentThread, DiffResponse } from '../types/diff';
+import type { DiffCommentThread, DiffFile, DiffResponse } from '../types/diff';
 
 import App from './App';
 import type { BridgeEvent } from './bridgeEvents';
@@ -168,25 +168,28 @@ describe('App Component - Clear Comments Functionality', () => {
   });
 
   it('fetches AI explain availability on mount and enables the per-file Explain button', async () => {
+    // An added file carries its whole content in the hunks, so explain can
+    // gate on it without any blob fetch.
     const diffWithContent: DiffResponse = {
       ...mockDiffResponse,
       files: [
         {
           path: 'test.ts',
-          status: 'modified',
-          additions: 1,
-          deletions: 1,
+          status: 'added',
+          additions: 25,
+          deletions: 0,
           chunks: [
             {
-              header: '@@ -1 +1 @@',
-              oldStart: 1,
-              oldLines: 1,
+              header: '@@ -0,0 +1,25 @@',
+              oldStart: 0,
+              oldLines: 0,
               newStart: 1,
-              newLines: 1,
-              lines: [
-                { type: 'delete', content: 'old', oldLineNumber: 1 },
-                { type: 'add', content: 'new', newLineNumber: 1 },
-              ],
+              newLines: 25,
+              lines: Array.from({ length: 25 }, (_, index) => ({
+                type: 'add' as const,
+                content: `added line ${index}`,
+                newLineNumber: index + 1,
+              })),
             },
           ],
         },
@@ -213,7 +216,7 @@ describe('App Component - Clear Comments Functionality', () => {
     renderApp();
 
     const explainButton = await screen.findByRole('button', {
-      name: 'Explain this change with AI',
+      name: 'Explain this file with AI',
     });
     expect(explainButton).toBeEnabled();
     expect(mockGlobalFetch).toHaveBeenCalledWith('/ai-gateway/status');
@@ -664,98 +667,179 @@ describe('App Component - Comment sync', () => {
   });
 });
 
-describe('App Component - Diff Mode Persistence', () => {
-  it('initializes the selected view mode from localStorage', async () => {
-    mockFetch(mockDiffResponse);
-    window.localStorage.setItem('diffops.diffViewMode', 'unified');
+describe('App Component - Per-File View Modes', () => {
+  const firstFile: DiffFile = {
+    path: 'test.ts',
+    status: 'modified',
+    additions: 5,
+    deletions: 2,
+    chunks: [],
+  };
 
-    renderApp();
+  const twoFileDiffResponse: DiffResponse = {
+    ...mockDiffResponse,
+    files: [
+      firstFile,
+      {
+        path: 'docs/guide.md',
+        status: 'modified',
+        additions: 1,
+        deletions: 1,
+        chunks: [],
+      },
+    ],
+  };
 
-    const unifiedButton = await screen.findByRole('button', { name: 'Unified' });
+  const stubFetch = (diffResponse: DiffResponse = twoFileDiffResponse) => {
+    const mockGlobalFetch = vi.mocked(global.fetch);
+    mockGlobalFetch.mockImplementation(((url: RequestInfo | URL) => {
+      const urlString = String(url);
+      if (urlString.includes('/api/blob/')) {
+        return Promise.resolve({ ok: true, text: () => Promise.resolve('# Guide') });
+      }
+      if (urlString.includes('/api/revisions')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ specialOptions: [], branches: [], commits: [] }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(diffResponse) });
+    }) as unknown as typeof fetch);
+  };
 
-    await waitFor(() => {
-      expect(unifiedButton).toHaveClass('bg-github-bg-primary');
+  const findFileSection = async (container: HTMLElement, filePath: string) => {
+    return await waitFor(() => {
+      const section = container.querySelector(`[data-file-path="${filePath}"]`);
+      expect(section).not.toBeNull();
+      return section as HTMLElement;
+    });
+  };
+
+  const getTabLabels = (section: HTMLElement) => {
+    const tabs = within(section).getByRole('group', { name: 'File view mode' });
+    return within(tabs)
+      .getAllByRole('button')
+      .map((button) => button.textContent);
+  };
+
+  it('defaults every file to unified, listed first', async () => {
+    stubFetch();
+    const { container } = renderApp();
+
+    const tsSection = await findFileSection(container, 'test.ts');
+
+    expect(getTabLabels(tsSection)).toEqual(['Unified', 'Split', 'Full']);
+    expect(within(tsSection).getByRole('button', { name: 'Unified' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+  });
+
+  it('offers the preview modes only for markdown files', async () => {
+    stubFetch();
+    const { container } = renderApp();
+
+    const tsSection = await findFileSection(container, 'test.ts');
+    const mdSection = await findFileSection(container, 'docs/guide.md');
+
+    expect(getTabLabels(tsSection)).toEqual(['Unified', 'Split', 'Full']);
+    expect(getTabLabels(mdSection)).toEqual([
+      'Unified',
+      'Split',
+      'Full',
+      'Diff Preview',
+      'Full Preview',
+    ]);
+  });
+
+  it('switches one file without touching the others and persists the selection', async () => {
+    stubFetch();
+    const { container } = renderApp();
+
+    const tsSection = await findFileSection(container, 'test.ts');
+    fireEvent.click(within(tsSection).getByRole('button', { name: 'Split' }));
+
+    const mdSection = await findFileSection(container, 'docs/guide.md');
+    expect(within(tsSection).getByRole('button', { name: 'Split' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(within(mdSection).getByRole('button', { name: 'Unified' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+
+    expect(JSON.parse(window.localStorage.getItem('diffops.fileViewModes') ?? '{}')).toEqual({
+      'test.ts': 'split',
     });
   });
 
-  it('persists the selected view mode to localStorage', async () => {
-    mockFetch(mockDiffResponse);
+  it('initializes selections from localStorage', async () => {
+    window.localStorage.setItem('diffops.fileViewModes', JSON.stringify({ 'test.ts': 'full' }));
+    stubFetch();
+    const { container } = renderApp();
 
-    renderApp();
+    const tsSection = await findFileSection(container, 'test.ts');
 
-    const unifiedButton = await screen.findByRole('button', { name: 'Unified' });
-    fireEvent.click(unifiedButton);
-
-    expect(window.localStorage.getItem('diffops.diffViewMode')).toBe('unified');
+    expect(within(tsSection).getByRole('button', { name: 'Full' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
   });
 
-  it('persists the current view mode to localStorage and marks it active', async () => {
-    mockFetch(mockDiffResponse);
+  it('resets every file to split via the Reset button', async () => {
+    window.localStorage.setItem(
+      'diffops.fileViewModes',
+      JSON.stringify({ 'test.ts': 'full', 'docs/guide.md': 'diff-preview' }),
+    );
+    stubFetch();
+    const { container } = renderApp();
 
-    renderApp();
+    fireEvent.click(await screen.findByRole('button', { name: 'Reset' }));
 
-    const currentButton = await screen.findByRole('button', { name: 'Current' });
-    fireEvent.click(currentButton);
+    const tsSection = await findFileSection(container, 'test.ts');
+    const mdSection = await findFileSection(container, 'docs/guide.md');
+    expect(within(tsSection).getByRole('button', { name: 'Split' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(within(mdSection).getByRole('button', { name: 'Split' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
 
-    expect(window.localStorage.getItem('diffops.diffViewMode')).toBe('current');
-
-    await waitFor(() => {
-      expect(currentButton).toHaveClass('bg-github-bg-primary');
+    expect(JSON.parse(window.localStorage.getItem('diffops.fileViewModes') ?? '{}')).toEqual({
+      'test.ts': 'split',
+      'docs/guide.md': 'split',
     });
   });
 
-  it('initializes the current view mode from localStorage', async () => {
-    mockFetch(mockDiffResponse);
-    window.localStorage.setItem('diffops.diffViewMode', 'current');
+  it('falls back to unified for stdin diffs without overwriting the stored preference', async () => {
+    window.localStorage.setItem('diffops.fileViewModes', JSON.stringify({ 'test.ts': 'full' }));
+    stubFetch({ ...twoFileDiffResponse, baseCommitish: 'stdin', targetCommitish: 'stdin' });
+    const { container } = renderApp();
 
-    renderApp();
+    const tsSection = await findFileSection(container, 'test.ts');
 
-    const currentButton = await screen.findByRole('button', { name: 'Current' });
+    expect(within(tsSection).getByRole('button', { name: 'Full' })).toBeDisabled();
+    expect(within(tsSection).getByRole('button', { name: 'Unified' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
 
-    await waitFor(() => {
-      expect(currentButton).toHaveClass('bg-github-bg-primary');
+    expect(JSON.parse(window.localStorage.getItem('diffops.fileViewModes') ?? '{}')).toEqual({
+      'test.ts': 'full',
     });
   });
 
-  it('disables the current view mode and falls back to unified for stdin diffs', async () => {
-    mockFetch({
-      ...mockDiffResponse,
-      baseCommitish: 'stdin',
-      targetCommitish: 'stdin',
-    });
-    window.localStorage.setItem('diffops.diffViewMode', 'current');
-
-    renderApp();
-
-    const currentButton = await screen.findByRole('button', { name: 'Current' });
-    const unifiedButton = await screen.findByRole('button', { name: 'Unified' });
-
-    expect(currentButton).toBeDisabled();
-
-    await waitFor(() => {
-      expect(unifiedButton).toHaveClass('bg-github-bg-primary');
-    });
-
-    // The persisted preference must survive the session fallback
-    expect(window.localStorage.getItem('diffops.diffViewMode')).toBe('current');
-  });
-
-  it('keeps the selected view mode after triggering refresh', async () => {
+  it('keeps per-file selections after triggering refresh', async () => {
     const mockGlobalFetch = vi.mocked(global.fetch);
     mockGlobalFetch.mockClear();
-    mockComments = [];
-    mockClearAllComments.mockReset();
-    mockConfirm.mockReturnValue(false);
-    mockFetch(mockDiffResponse);
+    stubFetch();
+    const { container } = renderApp();
 
-    renderApp();
-
-    const unifiedButton = await screen.findByRole('button', { name: 'Unified' });
-    fireEvent.click(unifiedButton);
-
-    await waitFor(() => {
-      expect(unifiedButton).toHaveClass('bg-github-bg-primary');
-    });
+    const tsSection = await findFileSection(container, 'test.ts');
+    fireEvent.click(within(tsSection).getByRole('button', { name: 'Split' }));
 
     act(() => {
       bridgeEventListener?.({ type: 'reload' });
@@ -765,15 +849,14 @@ describe('App Component - Diff Mode Persistence', () => {
     fireEvent.click(refreshButton);
 
     await waitFor(() => {
-      // Exactly two diff fetches: the initial load and the refresh
       const diffCalls = mockGlobalFetch.mock.calls.filter(([url]) =>
         String(url).startsWith('/api/diff?'),
       );
       expect(diffCalls).toHaveLength(2);
     });
 
-    await waitFor(() => {
-      expect(unifiedButton).toHaveClass('bg-github-bg-primary');
+    expect(JSON.parse(window.localStorage.getItem('diffops.fileViewModes') ?? '{}')).toEqual({
+      'test.ts': 'split',
     });
   });
 });

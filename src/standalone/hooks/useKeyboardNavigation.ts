@@ -26,7 +26,7 @@ import { getStartPosition, findNextMatchingPosition } from './keyboardNavigation
 export function useKeyboardNavigation({
   files,
   comments,
-  viewMode = DEFAULT_DIFF_VIEW_MODE,
+  getViewMode = () => DEFAULT_DIFF_VIEW_MODE,
   reviewedFiles,
   onToggleReviewed,
   onCreateComment,
@@ -63,9 +63,9 @@ export function useKeyboardNavigation({
         }
         return;
       }
-      scrollToElement(getElementId(position, viewMode));
+      scrollToElement(getElementId(position, getViewMode(position.fileIndex)));
     },
-    [onScrollToFile, files, scrollToElement, viewMode],
+    [onScrollToFile, files, scrollToElement, getViewMode],
   );
 
   // Build comment index for efficient lookup
@@ -84,8 +84,8 @@ export function useKeyboardNavigation({
 
   // Create navigation filters
   const filters = useMemo(
-    () => createNavigationFilters(files, commentIndex, viewMode, reviewedFiles),
-    [files, commentIndex, viewMode, reviewedFiles],
+    () => createNavigationFilters(files, commentIndex, getViewMode, reviewedFiles),
+    [files, commentIndex, getViewMode, reviewedFiles],
   );
 
   // Core navigation function - finds next/prev position matching filter
@@ -96,9 +96,9 @@ export function useKeyboardNavigation({
       }
 
       const startPosition = getStartPosition(cursor ?? lastCursorRef.current);
-      return findNextMatchingPosition(startPosition, direction, filter, files, viewMode);
+      return findNextMatchingPosition(startPosition, direction, filter, files, getViewMode);
     },
-    [cursor, files, viewMode],
+    [cursor, files, getViewMode],
   );
 
   // Create navigation commands
@@ -149,7 +149,7 @@ export function useKeyboardNavigation({
   // Switch between left and right sides in split mode
   const switchSide = useCallback(
     (side: 'left' | 'right') => {
-      if (!cursor || viewMode !== 'split') return;
+      if (!cursor || getViewMode(cursor.fileIndex) !== 'split') return;
 
       // Create new cursor with the requested side
       let newCursor = { ...cursor, side };
@@ -167,7 +167,7 @@ export function useKeyboardNavigation({
             // Move to the delete line that pairs with this add line
             newCursor = { ...newCursor, lineIndex: cursor.lineIndex - 1 };
             setCursor(newCursor);
-            scrollToElement(getElementId(newCursor, viewMode));
+            scrollToElement(getElementId(newCursor, getViewMode(newCursor.fileIndex)));
             return;
           }
         }
@@ -179,7 +179,7 @@ export function useKeyboardNavigation({
             // Move to the add line that pairs with this delete line
             newCursor = { ...newCursor, lineIndex: cursor.lineIndex + 1 };
             setCursor(newCursor);
-            scrollToElement(getElementId(newCursor, viewMode));
+            scrollToElement(getElementId(newCursor, getViewMode(newCursor.fileIndex)));
             return;
           }
         }
@@ -259,9 +259,9 @@ export function useKeyboardNavigation({
 
       // Update cursor and scroll
       setCursor(newCursor);
-      scrollToElement(getElementId(newCursor, viewMode));
+      scrollToElement(getElementId(newCursor, getViewMode(newCursor.fileIndex)));
     },
-    [cursor, viewMode, scrollToElement, files],
+    [cursor, getViewMode, scrollToElement, files],
   );
 
   // Move cursor to center of viewport
@@ -281,10 +281,12 @@ export function useKeyboardNavigation({
 
     // Iterate through all files and lines to find the one closest to center
     files.forEach((file, fileIndex) => {
+      const fileViewMode = getViewMode(fileIndex);
       file.chunks.forEach((chunk, chunkIndex) => {
         chunk.lines.forEach((_, lineIndex) => {
           // Check both sides in split mode
-          const sides = viewMode === 'split' ? (['left', 'right'] as const) : (['right'] as const);
+          const sides =
+            fileViewMode === 'split' ? (['left', 'right'] as const) : (['right'] as const);
 
           for (const side of sides) {
             const position: CursorPosition = {
@@ -295,11 +297,11 @@ export function useKeyboardNavigation({
             };
 
             // Skip positions without content in split mode
-            if (viewMode === 'split' && !hasContentOnSide(position, files)) {
+            if (fileViewMode === 'split' && !hasContentOnSide(position, files)) {
               continue;
             }
 
-            const elementId = getElementId(position, viewMode);
+            const elementId = getElementId(position, fileViewMode);
             const element = document.getElementById(elementId);
 
             if (element) {
@@ -325,7 +327,7 @@ export function useKeyboardNavigation({
       setCursor(closestPosition);
       // Don't scroll since we're moving to already visible content
     }
-  }, [files, viewMode, setCursor]);
+  }, [files, getViewMode, setCursor]);
 
   // Set cursor position from external source (e.g., mouse click)
   const setCursorPosition = useCallback(
@@ -337,9 +339,9 @@ export function useKeyboardNavigation({
       // Fix the side if necessary
       const fixedPosition = fixSide(position, files);
       setCursor(fixedPosition);
-      scrollToElement(getElementId(fixedPosition, viewMode));
+      scrollToElement(getElementId(fixedPosition, getViewMode(fixedPosition.fileIndex)));
     },
-    [files, viewMode, scrollToElement],
+    [files, getViewMode, scrollToElement],
   );
 
   // Common options for all hotkeys
@@ -378,13 +380,13 @@ export function useKeyboardNavigation({
         fileIndex: 0,
         chunkIndex: 0,
         lineIndex: 0,
-        side: viewMode === 'split' ? 'left' : 'right',
+        side: getViewMode(0) === 'split' ? 'left' : 'right',
       };
       setCursor(position);
       scrollToFilePosition(position);
     },
     { ...hotkeyOptions, useKey: true },
-    [files, viewMode, scrollToFilePosition],
+    [files, getViewMode, scrollToFilePosition],
   );
 
   useHotkeys(
@@ -397,27 +399,27 @@ export function useKeyboardNavigation({
         fileIndex: lastFileIndex,
         chunkIndex: 0,
         lineIndex: 0,
-        side: viewMode === 'split' ? 'left' : 'right',
+        side: getViewMode(lastFileIndex) === 'split' ? 'left' : 'right',
       };
       setCursor(position);
       scrollToFilePosition(position);
     },
     { ...hotkeyOptions, useKey: true },
-    [files, viewMode, scrollToFilePosition],
+    [files, getViewMode, scrollToFilePosition],
   );
 
   // Side switching (split mode only)
   useHotkeys(
     'h, left',
     () => switchSide('left'),
-    { ...hotkeyOptions, enabled: viewMode === 'split' },
-    [switchSide, viewMode],
+    { ...hotkeyOptions, enabled: cursor !== null && getViewMode(cursor.fileIndex) === 'split' },
+    [switchSide, cursor, getViewMode],
   );
   useHotkeys(
     'l, right',
     () => switchSide('right'),
-    { ...hotkeyOptions, enabled: viewMode === 'split' },
-    [switchSide, viewMode],
+    { ...hotkeyOptions, enabled: cursor !== null && getViewMode(cursor.fileIndex) === 'split' },
+    [switchSide, cursor, getViewMode],
   );
 
   // Move the cursor to the first unviewed file after the given index,
@@ -436,7 +438,7 @@ export function useKeyboardNavigation({
             fileIndex,
             chunkIndex: 0,
             lineIndex: 0,
-            side: viewMode === 'split' ? 'left' : 'right',
+            side: getViewMode(fileIndex) === 'split' ? 'left' : 'right',
           },
           files,
         );
@@ -445,7 +447,7 @@ export function useKeyboardNavigation({
         return;
       }
     },
-    [files, reviewedFiles, viewMode, scrollToFilePosition],
+    [files, reviewedFiles, getViewMode, scrollToFilePosition],
   );
 
   // Update only the remembered navigation position, without showing the
@@ -462,12 +464,12 @@ export function useKeyboardNavigation({
           fileIndex,
           chunkIndex: 0,
           lineIndex: 0,
-          side: viewMode === 'split' ? 'left' : 'right',
+          side: getViewMode(fileIndex) === 'split' ? 'left' : 'right',
         },
         files,
       );
     },
-    [files, viewMode],
+    [files, getViewMode],
   );
 
   // File review toggle - targets the cursor file, or the hovered file when

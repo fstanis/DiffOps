@@ -1,4 +1,4 @@
-import type { DiffCommentThread, Narration } from '../../types/diff';
+import type { DiffCommentThread, FileExplanation, Narration } from '../../types/diff';
 
 import type { PickedDirectoryHandle } from '../gitEngine/walkDirectory';
 import { createMemoryKvStore, openIndexedDbKvStore, type KVStore } from './kvStore';
@@ -6,12 +6,14 @@ import { createMemoryKvStore, openIndexedDbKvStore, type KVStore } from './kvSto
 const DATABASE_NAME = 'diffops-standalone';
 const COMMENT_SESSIONS_STORE = 'commentSessions';
 const NARRATIONS_STORE = 'narrations';
+const FILE_EXPLANATIONS_STORE = 'fileExplanations';
 const RECENT_DIFFS_STORE = 'recentDiffs';
 const RECENT_REPOS_STORE = 'recentRepos';
 const LAST_REPO_KEY = 'last';
 const RECENT_DIFF_LIMIT = 10;
-// v3 added narrations; raise again whenever a new store joins the list.
-const DATABASE_VERSION = 3;
+// v3 added narrations; v4 added file explanations; raise again whenever a new
+// store joins the list.
+const DATABASE_VERSION = 4;
 
 /** A persisted comment session: threads plus the version the next writer must base on. */
 export interface StoredCommentSession {
@@ -23,6 +25,18 @@ export interface StoredCommentSession {
 /** A narration persisted per comment session, invalidated by its fingerprint. */
 export interface StoredNarration {
   narration: Narration;
+  fingerprint: string;
+  updatedAt: string;
+}
+
+/**
+ * A whole-file explanation persisted per comment session and file path,
+ * invalidated by its fingerprint.
+ */
+export interface StoredFileExplanation {
+  explanation: FileExplanation;
+  /** Supporting files already included in the prompt; empty when only the first round ran. */
+  includedSupportingFiles: string[];
   fingerprint: string;
   updatedAt: string;
 }
@@ -63,6 +77,10 @@ export const buildCommentSessionKey = (
   baseMode: string = '',
 ): string => [repositoryId, base, target, baseMode].join('|');
 
+/** Builds the storage key for one file's explanation within a comment session. */
+export const buildFileExplanationKey = (sessionKey: string, path: string): string =>
+  [sessionKey, path].join('|');
+
 /** IndexedDB-backed persistence for the standalone app (see kvStore.ts for the fallback story). */
 export class StandaloneStore {
   private readonly kv: KVStore;
@@ -101,6 +119,24 @@ export class StandaloneStore {
   async saveNarration(key: string, narration: Narration, fingerprint: string): Promise<void> {
     await this.kv.put<StoredNarration>(NARRATIONS_STORE, key, {
       narration,
+      fingerprint,
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  async loadFileExplanation(key: string): Promise<StoredFileExplanation | undefined> {
+    return this.kv.get<StoredFileExplanation>(FILE_EXPLANATIONS_STORE, key);
+  }
+
+  async saveFileExplanation(
+    key: string,
+    explanation: FileExplanation,
+    includedSupportingFiles: string[],
+    fingerprint: string,
+  ): Promise<void> {
+    await this.kv.put<StoredFileExplanation>(FILE_EXPLANATIONS_STORE, key, {
+      explanation,
+      includedSupportingFiles,
       fingerprint,
       updatedAt: new Date().toISOString(),
     });
@@ -169,7 +205,13 @@ const openBestEffortStore = (): StandaloneStore => {
     return new StandaloneStore(
       openIndexedDbKvStore(
         DATABASE_NAME,
-        [COMMENT_SESSIONS_STORE, NARRATIONS_STORE, RECENT_DIFFS_STORE, RECENT_REPOS_STORE],
+        [
+          COMMENT_SESSIONS_STORE,
+          NARRATIONS_STORE,
+          FILE_EXPLANATIONS_STORE,
+          RECENT_DIFFS_STORE,
+          RECENT_REPOS_STORE,
+        ],
         { version: DATABASE_VERSION },
       ),
     );

@@ -26,7 +26,9 @@ export interface DiffLine {
   newLineNumber?: number;
 }
 
-export type DiffViewMode = 'split' | 'unified' | 'current';
+export type DiffViewMode = 'split' | 'unified' | 'full';
+export type FilePreviewMode = 'diff-preview' | 'full-preview';
+export type FileViewMode = DiffViewMode | FilePreviewMode;
 export type DiffSide = 'old' | 'new';
 export type DiffLineRange = number | { start: number; end: number };
 
@@ -88,6 +90,28 @@ export interface Narration {
   intro: string;
   cards: NarrationCard[];
   epilogue: string;
+}
+
+/** What a callable symbol takes and produces, phrased by parameter name or in prose. */
+export interface FileExplanationContract {
+  input: string;
+  output: string;
+}
+
+/** One entry of a whole-file outline; order is the suggested reading order. */
+export interface FileExplanationSymbol {
+  name: string;
+  type: 'function' | 'method' | 'class' | 'constant' | 'other';
+  summary: string;
+  contract?: FileExplanationContract;
+}
+
+/** A whole-file explanation: summary, outline, and the files the model still wants. */
+export interface FileExplanation {
+  fileSummary: string;
+  symbols: FileExplanationSymbol[];
+  /** Paths offered to the model; always empty on a final-round answer. */
+  additionalFilesNeeded: string[];
 }
 
 export type LineNumber = number | [number, number];

@@ -1,48 +1,16 @@
 import { useEffect, useState } from 'react';
 
 import type { DiffFile } from '../../types/diff';
+import {
+  fetchCurrentFileLines,
+  getCachedCurrentFileLines,
+  linesFromAddedFile,
+} from '../utils/currentFileContent';
 
 export interface CurrentFileContentState {
   lines: string[] | null;
   isLoading: boolean;
   error: string | null;
-}
-
-// Cache per DiffFile object identity: a re-fetched diff produces new file
-// objects, so watch reloads invalidate the cache naturally, while plain
-// re-renders keep serving cached content without a flash of loading state.
-const contentCache = new WeakMap<DiffFile, string[]>();
-const pendingFetches = new WeakMap<DiffFile, Promise<string[]>>();
-
-// An added file's hunks already contain the whole new file, so no blob
-// fetch is needed for it.
-function linesFromAddedFile(file: DiffFile): string[] {
-  const lines: string[] = [];
-  for (const chunk of file.chunks) {
-    for (const line of chunk.lines) {
-      if (line.type === 'add') {
-        lines.push(line.content);
-      }
-    }
-  }
-  return lines;
-}
-
-async function fetchBlobLines(path: string, ref: string): Promise<string[]> {
-  const encodedPath = encodeURIComponent(path);
-  const response = await fetch(`/api/blob/${encodedPath}?ref=${encodeURIComponent(ref)}`);
-
-  if (!response.ok) {
-    throw new Error(`Failed to fetch file content: ${response.statusText}`);
-  }
-
-  const text = await response.text();
-  const lines = text.split('\n');
-  // Remove last empty line if file doesn't end with newline
-  if (lines.length > 0 && lines[lines.length - 1] === '') {
-    lines.pop();
-  }
-  return lines;
 }
 
 export function useCurrentFileContent(
@@ -58,7 +26,7 @@ export function useCurrentFileContent(
     if (!targetCommitish || targetCommitish === 'stdin') {
       return { lines: null, isLoading: false, error: 'Blob content is unavailable' };
     }
-    const cached = contentCache.get(file);
+    const cached = getCachedCurrentFileLines(file);
     if (cached) {
       return { lines: cached, isLoading: false, error: null };
     }
@@ -78,31 +46,16 @@ export function useCurrentFileContent(
       return;
     }
 
-    const cached = contentCache.get(file);
+    const cached = getCachedCurrentFileLines(file);
     if (cached) {
       setState({ lines: cached, isLoading: false, error: null });
       return;
     }
 
-    let pending = pendingFetches.get(file);
-    if (!pending) {
-      pending = fetchBlobLines(file.path, targetCommitish).then(
-        (lines) => {
-          contentCache.set(file, lines);
-          return lines;
-        },
-        (error: unknown) => {
-          pendingFetches.delete(file);
-          throw error;
-        },
-      );
-      pendingFetches.set(file, pending);
-    }
-
     let cancelled = false;
     setState({ lines: null, isLoading: true, error: null });
 
-    pending.then(
+    fetchCurrentFileLines(file, targetCommitish).then(
       (lines) => {
         if (!cancelled) {
           setState({ lines, isLoading: false, error: null });

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'bun:test';
 import mermaid from 'mermaid';
 
@@ -45,7 +45,8 @@ const mergedChunks: MergedChunk[] = [
 const createProps = (overrides: Partial<DiffViewerBodyProps> = {}): DiffViewerBodyProps => ({
   file: createFile(),
   threads: [],
-  diffMode: 'unified',
+  viewMode: 'unified',
+  onViewModeChange: vi.fn(),
   mergedChunks,
   isExpandLoading: false,
   expandHiddenLines: vi.fn().mockResolvedValue(undefined),
@@ -247,51 +248,32 @@ describe('MarkdownDiffViewer', () => {
     setMatchMedia(true);
   });
 
-  it('shows Full Preview tab only after prefetch succeeds', async () => {
-    (global.fetch as any).mockResolvedValue({
-      ok: true,
-      text: async () => '# Prefetched title',
-    });
-
-    renderViewer();
-
-    expect(screen.queryByRole('button', { name: 'Full Preview' })).not.toBeInTheDocument();
-
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Full Preview' })).toBeInTheDocument();
-    });
-
-    expect(global.fetch).toHaveBeenCalledWith('/api/blob/docs%2Fguide.md?ref=HEAD');
-  });
-
-  it('does not show Full Preview tab when prefetch fails', async () => {
+  it('falls back to diff-preview when the full preview content cannot load', async () => {
+    const onViewModeChange = vi.fn();
     (global.fetch as any).mockResolvedValue({
       ok: false,
       statusText: 'Not Found',
       text: async () => '',
     });
 
-    renderViewer();
+    renderViewer({ viewMode: 'full-preview', onViewModeChange });
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledTimes(2);
     });
 
-    expect(screen.queryByRole('button', { name: 'Full Preview' })).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(onViewModeChange).toHaveBeenCalledWith('diff-preview');
+    });
   });
 
-  it('uses prefetched content without refetch when switching to Full Preview', async () => {
+  it('renders prefetched content without refetch in full preview', async () => {
     (global.fetch as any).mockResolvedValue({
       ok: true,
       text: async () => '# Prefetched title',
     });
 
-    renderViewer();
-
-    const fullPreviewButton = await screen.findByRole('button', {
-      name: 'Full Preview',
-    });
-    fireEvent.click(fullPreviewButton);
+    renderViewer({ viewMode: 'full-preview' });
 
     expect(await screen.findByText('Prefetched title')).toBeInTheDocument();
     expect(global.fetch).toHaveBeenCalledTimes(2);
@@ -299,9 +281,10 @@ describe('MarkdownDiffViewer', () => {
 
   it('renders Mermaid diagrams in Diff Preview', async () => {
     document.documentElement.setAttribute('data-theme', 'dark');
-    const { container } = renderViewer({ mergedChunks: mermaidChunks });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Diff Preview' }));
+    const { container } = renderViewer({
+      viewMode: 'diff-preview',
+      mergedChunks: mermaidChunks,
+    });
 
     await waitFor(() => {
       expect(mermaid.initialize).toHaveBeenCalledWith({
@@ -319,9 +302,7 @@ describe('MarkdownDiffViewer', () => {
   });
 
   it('renders comment-only markdown lines as plain text in Diff Preview', () => {
-    renderViewer({ mergedChunks: htmlCommentChunks });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Diff Preview' }));
+    renderViewer({ viewMode: 'diff-preview', mergedChunks: htmlCommentChunks });
 
     expect(
       screen.getByText(
@@ -332,9 +313,7 @@ describe('MarkdownDiffViewer', () => {
   });
 
   it('renders changed fenced code blocks without dropping surrounding markdown in Diff Preview', () => {
-    renderViewer({ mergedChunks: codeFenceDiffChunks });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Diff Preview' }));
+    renderViewer({ viewMode: 'diff-preview', mergedChunks: codeFenceDiffChunks });
 
     const oldLine = screen.getByText(
       'npx skills add yoshiko-pg/diffops # エージェントにスキルを追加',
@@ -356,12 +335,7 @@ describe('MarkdownDiffViewer', () => {
       text: async () => '```mermaid\ngraph TD\n  A --> B\n```',
     });
 
-    const { container } = renderViewer();
-
-    const fullPreviewButton = await screen.findByRole('button', {
-      name: 'Full Preview',
-    });
-    fireEvent.click(fullPreviewButton);
+    const { container } = renderViewer({ viewMode: 'full-preview' });
 
     await waitFor(() => {
       expect(mermaid.render).toHaveBeenCalledWith(
@@ -381,12 +355,7 @@ describe('MarkdownDiffViewer', () => {
       text: async () => '```mermaid\ngraph TD\n  A --> B\n```',
     });
 
-    renderViewer();
-
-    const fullPreviewButton = await screen.findByRole('button', {
-      name: 'Full Preview',
-    });
-    fireEvent.click(fullPreviewButton);
+    renderViewer({ viewMode: 'full-preview' });
 
     expect(await screen.findByText('Unable to render Mermaid diagram.')).toBeInTheDocument();
     expect(
@@ -399,9 +368,7 @@ describe('MarkdownDiffViewer', () => {
   it('re-renders Mermaid diagrams when data-theme changes after mount', async () => {
     document.documentElement.setAttribute('data-theme', 'dark');
 
-    renderViewer({ mergedChunks: mermaidChunks });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Diff Preview' }));
+    renderViewer({ viewMode: 'diff-preview', mergedChunks: mermaidChunks });
 
     await waitFor(() => {
       expect(vi.mocked(mermaid.initialize)).toHaveBeenCalledWith({
@@ -473,18 +440,16 @@ describe('MarkdownDiffViewer two-side fetch', () => {
     expect(global.fetch).toHaveBeenCalledWith('/api/blob/old.md?ref=HEAD~1');
   });
 
-  it('shows the Full Preview tab and renders base content for a deleted file', async () => {
+  it('renders base content in full preview for a deleted file', async () => {
     (global.fetch as any).mockResolvedValue({
       ok: true,
       text: async () => '# Deleted doc\n\nBase body content.\n',
     });
 
     renderViewer({
+      viewMode: 'full-preview',
       file: createFile({ status: 'deleted', additions: 0, deletions: 5, oldPath: 'old.md' }),
     });
-
-    const fullPreviewButton = await screen.findByRole('button', { name: 'Full Preview' });
-    fireEvent.click(fullPreviewButton);
 
     expect(await screen.findByText('Deleted doc')).toBeInTheDocument();
     expect(screen.getByText('Base body content.')).toBeInTheDocument();
@@ -495,13 +460,11 @@ describe('MarkdownDiffViewer two-side fetch', () => {
       .mockResolvedValueOnce({ ok: false, statusText: 'Not Found', text: async () => '' })
       .mockResolvedValueOnce({ ok: true, text: async () => '# Just body\n' });
 
-    renderViewer();
+    renderViewer({ viewMode: 'diff-preview' });
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledTimes(2);
     });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Diff Preview' }));
 
     expect(
       await screen.findByText('Base content unavailable — showing partial preview.'),
@@ -512,10 +475,8 @@ describe('MarkdownDiffViewer two-side fetch', () => {
     renderViewer({ baseCommitish: 'stdin', targetCommitish: 'stdin' });
 
     await waitFor(() => {
-      expect(screen.queryByRole('button', { name: 'Full Preview' })).not.toBeInTheDocument();
+      expect(global.fetch).toHaveBeenCalledTimes(0);
     });
-
-    expect(global.fetch).toHaveBeenCalledTimes(0);
   });
 });
 
@@ -533,10 +494,7 @@ describe('MarkdownFullPreview integration', () => {
       text: async () => '# Hello\n\nBody paragraph.\n',
     });
 
-    renderViewer();
-
-    const fullPreviewButton = await screen.findByRole('button', { name: 'Full Preview' });
-    fireEvent.click(fullPreviewButton);
+    renderViewer({ viewMode: 'full-preview' });
 
     expect(await screen.findByText('Hello')).toBeInTheDocument();
     expect(screen.getByText('Body paragraph.')).toBeInTheDocument();
@@ -549,10 +507,7 @@ describe('MarkdownFullPreview integration', () => {
       text: async () => '---\ntitle: Hello\npublished: true\n---\n\n# Body\n\nText.\n',
     });
 
-    renderViewer();
-
-    const fullPreviewButton = await screen.findByRole('button', { name: 'Full Preview' });
-    fireEvent.click(fullPreviewButton);
+    renderViewer({ viewMode: 'full-preview' });
 
     expect(await screen.findByText('title')).toBeInTheDocument();
     expect(screen.getByText('Hello')).toBeInTheDocument();
@@ -568,10 +523,7 @@ describe('MarkdownFullPreview integration', () => {
       text: async () => '---\n[unclosed\n---\n\n# Body\n\nText.\n',
     });
 
-    renderViewer();
-
-    const fullPreviewButton = await screen.findByRole('button', { name: 'Full Preview' });
-    fireEvent.click(fullPreviewButton);
+    renderViewer({ viewMode: 'full-preview' });
 
     expect(await screen.findByText('Body')).toBeInTheDocument();
     expect(screen.queryByText('Key')).not.toBeInTheDocument();
@@ -586,10 +538,6 @@ describe('MarkdownDiffPreview frontmatter diff', () => {
     setMatchMedia(true);
   });
 
-  const goToDiffPreview = () => {
-    fireEvent.click(screen.getByRole('button', { name: 'Diff Preview' }));
-  };
-
   it('renders a frontmatter diff table for a modified file when both sides have frontmatter', async () => {
     (global.fetch as any)
       .mockResolvedValueOnce({
@@ -601,13 +549,11 @@ describe('MarkdownDiffPreview frontmatter diff', () => {
         text: async () => '---\ntitle: New\npublished: true\n---\n\n# Body\n',
       });
 
-    renderViewer();
+    renderViewer({ viewMode: 'diff-preview' });
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledTimes(2);
     });
-
-    goToDiffPreview();
 
     expect(await screen.findAllByText('title')).toHaveLength(1); // modified → single Before/After row
     expect(screen.getByText('Old')).toBeInTheDocument();
@@ -628,13 +574,14 @@ describe('MarkdownDiffPreview frontmatter diff', () => {
         text: async () => '---\ntitle: New\n---\n\n# Heading\nBody text here.\n',
       });
 
-    const { container } = renderViewer({ mergedChunks: frontmatterChangedChunks });
+    const { container } = renderViewer({
+      viewMode: 'diff-preview',
+      mergedChunks: frontmatterChangedChunks,
+    });
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledTimes(2);
     });
-
-    goToDiffPreview();
 
     // Frontmatter change is shown in the structured table…
     expect(await screen.findByText('Old')).toBeInTheDocument();
@@ -661,13 +608,11 @@ describe('MarkdownDiffPreview frontmatter diff', () => {
         text: async () => '---\ntitle: Same\n---\n\n# Heading\n\nNew body text.\n',
       });
 
-    renderViewer({ mergedChunks: bodyOnlyChangeChunks });
+    renderViewer({ viewMode: 'diff-preview', mergedChunks: bodyOnlyChangeChunks });
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledTimes(2);
     });
-
-    goToDiffPreview();
 
     // Unchanged frontmatter yields no diff table, and the leading body lines of
     // the hunk must not be mistaken for frontmatter and stripped away.
@@ -689,13 +634,11 @@ describe('MarkdownDiffPreview frontmatter diff', () => {
           '---\ntitle: Same\n---\n\nIntro.\n\n---\nSome closing text.\nChanged ending line.\n',
       });
 
-    const { container } = renderViewer({ mergedChunks: midFileHrChunks });
+    const { container } = renderViewer({ viewMode: 'diff-preview', mergedChunks: midFileHrChunks });
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledTimes(2);
     });
-
-    goToDiffPreview();
 
     // The chunk starts mid-file, so its leading `---` is a horizontal rule,
     // not the frontmatter delimiter; it must survive as an <hr>.
@@ -717,13 +660,14 @@ describe('MarkdownDiffPreview frontmatter diff', () => {
         text: async () => '---\ntitle: Same\n---\n\nNew body text.\n',
       });
 
-    const { container } = renderViewer({ mergedChunks: unchangedFrontmatterTopChunks });
+    const { container } = renderViewer({
+      viewMode: 'diff-preview',
+      mergedChunks: unchangedFrontmatterTopChunks,
+    });
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledTimes(2);
     });
-
-    goToDiffPreview();
 
     // No table for an unchanged frontmatter, and the raw frontmatter context
     // lines are stripped instead of rendering as an <hr> plus stray text.
@@ -739,13 +683,11 @@ describe('MarkdownDiffPreview frontmatter diff', () => {
       .mockResolvedValueOnce({ ok: true, text: async () => '# Just body\n' })
       .mockResolvedValueOnce({ ok: true, text: async () => '# Just body updated\n' });
 
-    renderViewer();
+    renderViewer({ viewMode: 'diff-preview' });
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledTimes(2);
     });
-
-    goToDiffPreview();
 
     expect(screen.queryByText('Key')).not.toBeInTheDocument();
   });
@@ -757,14 +699,13 @@ describe('MarkdownDiffPreview frontmatter diff', () => {
     });
 
     const { container } = renderViewer({
+      viewMode: 'diff-preview',
       file: createFile({ status: 'added', additions: 5, deletions: 0 }),
     });
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledTimes(1);
     });
-
-    goToDiffPreview();
 
     expect(await screen.findByText('title')).toBeInTheDocument();
     expect(screen.getByText('Hello')).toBeInTheDocument();
@@ -778,14 +719,13 @@ describe('MarkdownDiffPreview frontmatter diff', () => {
     });
 
     const { container } = renderViewer({
+      viewMode: 'diff-preview',
       file: createFile({ status: 'deleted', additions: 0, deletions: 5, oldPath: 'old.md' }),
     });
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledTimes(1);
     });
-
-    goToDiffPreview();
 
     expect(await screen.findByText('title')).toBeInTheDocument();
     expect(screen.getByText('Bye')).toBeInTheDocument();
@@ -800,13 +740,11 @@ describe('MarkdownDiffPreview frontmatter diff', () => {
         text: async () => '---\ntitle: OnlyTarget\n---\n\n# Body\n',
       });
 
-    renderViewer();
+    renderViewer({ viewMode: 'diff-preview' });
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledTimes(2);
     });
-
-    goToDiffPreview();
 
     expect(await screen.findByText(/target only/i)).toBeInTheDocument();
     expect(screen.getByText('title')).toBeInTheDocument();
@@ -820,8 +758,6 @@ describe('MarkdownDiffPreview frontmatter diff', () => {
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledTimes(0);
     });
-
-    goToDiffPreview();
 
     expect(screen.queryByText('title')).not.toBeInTheDocument();
     expect(screen.queryByText(/frontmatter/i)).not.toBeInTheDocument();

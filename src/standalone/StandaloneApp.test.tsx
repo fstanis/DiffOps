@@ -426,7 +426,10 @@ describe('StandaloneApp repository mode', () => {
 
     const banner = await screen.findByTestId('warning-banner');
     expect(banner.textContent).toContain('symlink');
-    expect(screen.getByText('src/repo.ts')).toBeInTheDocument();
+    // The file surfaces in both the sidebar and the diff header; a re-render
+    // right after mount can detach whichever node resolves first, so assert
+    // on the match count instead of a single element.
+    expect((await screen.findAllByText('src/repo.ts')).length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss warning' }));
     await waitFor(() => {

@@ -30,7 +30,7 @@ function hasCommentAtPosition(
 export function createNavigationFilters(
   files: DiffFile[],
   commentIndex: Map<string, CommentNavigationItem[]>,
-  viewMode: ViewMode,
+  getViewMode: (fileIndex: number) => ViewMode,
   reviewedFiles?: Set<string>,
 ) {
   return {
@@ -47,11 +47,11 @@ export function createNavigationFilters(
       // Skip if file is reviewed/collapsed
       if (reviewedFiles?.has(file.path)) return false;
 
-      if (viewMode === 'unified') return true;
+      if (getViewMode(pos.fileIndex) === 'unified') return true;
 
-      // Current mode renders only the new file, so lines without a new line
+      // Full mode renders only the new file, so lines without a new line
       // number (deleted lines) have no row to land on
-      if (viewMode === 'current') {
+      if (getViewMode(pos.fileIndex) === 'full') {
         return file.chunks[pos.chunkIndex]?.lines[pos.lineIndex]?.newLineNumber !== undefined;
       }
 
@@ -73,8 +73,8 @@ export function createNavigationFilters(
       const line = file.chunks[pos.chunkIndex]?.lines[pos.lineIndex];
       if (!line || line.type === 'normal') return false;
 
-      if (viewMode === 'current') {
-        // Deleted lines are not rendered in current mode, so a changed region
+      if (getViewMode(pos.fileIndex) === 'full') {
+        // Deleted lines are not rendered in full mode, so a changed region
         // begins at its first line that exists in the new file
         if (line.newLineNumber === undefined) return false;
         if (pos.lineIndex === 0) return true;
@@ -104,9 +104,11 @@ export function createNavigationFilters(
       const line = file.chunks[pos.chunkIndex]?.lines[pos.lineIndex];
       if (!line) return false;
 
-      // In current mode, only threads anchored to lines of the new file are
+      // In full mode, only threads anchored to lines of the new file are
       // visible
-      if (viewMode === 'current' && line.newLineNumber === undefined) return false;
+      if (getViewMode(pos.fileIndex) === 'full' && line.newLineNumber === undefined) {
+        return false;
+      }
 
       return hasCommentAtPosition(file.path, line, commentIndex);
     },

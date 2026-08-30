@@ -295,6 +295,127 @@ describe('installLocalApiBridge', () => {
     expect(stored.narration?.narration).toEqual(narration);
   });
 
+  describe('file explanations', () => {
+    const storedExplanation = {
+      fileSummary: 'Parses the sensor stream.',
+      symbols: [
+        { name: 'parseStream', type: 'function' as const, summary: 'Turns samples into beats.' },
+      ],
+      additionalFilesNeeded: ['src/helper.ts'],
+    };
+
+    const explanationUrl = (path: string) => `/api/explanation?path=${encodeURIComponent(path)}`;
+
+    it('round-trips a first-round explanation under the comment session and path', async () => {
+      install().setDiff(makeSource());
+
+      const empty = (await (await fetch(explanationUrl('src/app.ts'))).json()) as {
+        explanation: unknown;
+      };
+      expect(empty.explanation).toBeNull();
+
+      const put = await fetch(explanationUrl('src/app.ts'), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          explanation: storedExplanation,
+          includedSupportingFiles: [],
+          fingerprint: 'fingerprint-1',
+        }),
+      });
+      expect(put.ok).toBe(true);
+
+      const stored = (await (await fetch(explanationUrl('src/app.ts'))).json()) as {
+        explanation: {
+          explanation: typeof storedExplanation;
+          includedSupportingFiles: string[];
+          fingerprint: string;
+        } | null;
+      };
+      expect(stored.explanation?.fingerprint).toBe('fingerprint-1');
+      expect(stored.explanation?.includedSupportingFiles).toEqual([]);
+      expect(stored.explanation?.explanation).toEqual(storedExplanation);
+    });
+
+    it('keeps each file path under its own record', async () => {
+      install().setDiff(makeSource());
+
+      await fetch(explanationUrl('src/app.ts'), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          explanation: storedExplanation,
+          includedSupportingFiles: [],
+          fingerprint: 'fingerprint-1',
+        }),
+      });
+
+      const other = (await (await fetch(explanationUrl('src/other.ts'))).json()) as {
+        explanation: unknown;
+      };
+      expect(other.explanation).toBeNull();
+    });
+
+    it('rejects invalid explanation payloads and missing paths', async () => {
+      install().setDiff(makeSource());
+
+      const invalidPut = await fetch(explanationUrl('src/app.ts'), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          explanation: { fileSummary: 'no symbols' },
+          includedSupportingFiles: [],
+          fingerprint: '',
+        }),
+      });
+      expect(invalidPut.status).toBe(400);
+
+      const missingPathGet = await fetch('/api/explanation');
+      expect(missingPathGet.status).toBe(400);
+
+      const missingPathPut = await fetch('/api/explanation', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          explanation: storedExplanation,
+          includedSupportingFiles: [],
+          fingerprint: 'fingerprint-1',
+        }),
+      });
+      expect(missingPathPut.status).toBe(400);
+    });
+
+    it('persists explanations across bridge reinstalls via the store', async () => {
+      const store = new StandaloneStore(createMemoryKvStore());
+
+      const first = installLocalApiBridge({ store });
+      first.setDiff(makeSource());
+      await fetch(explanationUrl('src/app.ts'), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          explanation: storedExplanation,
+          includedSupportingFiles: ['src/helper.ts'],
+          fingerprint: 'fingerprint-1',
+        }),
+      });
+      first.restore();
+
+      const second = installLocalApiBridge({ store });
+      second.setDiff(makeSource());
+      bridge = second;
+
+      const stored = (await (await fetch(explanationUrl('src/app.ts'))).json()) as {
+        explanation: {
+          explanation: typeof storedExplanation;
+          includedSupportingFiles: string[];
+        } | null;
+      };
+      expect(stored.explanation?.includedSupportingFiles).toEqual(['src/helper.ts']);
+      expect(stored.explanation?.explanation).toEqual(storedExplanation);
+    });
+  });
+
   it('merges exported-format comment imports and bumps the version', async () => {
     install().setDiff(makeSource());
 

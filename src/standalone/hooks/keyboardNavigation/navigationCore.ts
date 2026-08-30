@@ -133,7 +133,7 @@ export function findNextMatchingPosition(
   direction: NavigationDirection,
   filter: NavigationFilter,
   files: DiffFile[],
-  viewMode: ViewMode,
+  getViewMode: (fileIndex: number) => ViewMode,
 ): NavigationResult {
   let current: CursorPosition | null = startPos;
   let started = false;
@@ -157,7 +157,7 @@ export function findNextMatchingPosition(
       const fixed = fixSide(current, files);
       return {
         position: fixed,
-        scrollTarget: getElementId(fixed, viewMode),
+        scrollTarget: getElementId(fixed, getViewMode(fixed.fileIndex)),
       };
     }
   }

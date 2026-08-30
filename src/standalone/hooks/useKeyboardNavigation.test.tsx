@@ -141,7 +141,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments: [],
-            viewMode: 'unified',
+            getViewMode: () => 'unified',
             onToggleReviewed: vi.fn(),
             reviewedFiles: new Set<string>(),
           }),
@@ -166,7 +166,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments: [],
-            viewMode: 'unified',
+            getViewMode: () => 'unified',
             onToggleReviewed: vi.fn(),
             reviewedFiles: new Set<string>(),
           }),
@@ -191,7 +191,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments: [],
-            viewMode: 'unified',
+            getViewMode: () => 'unified',
             onToggleReviewed: vi.fn(),
             reviewedFiles: new Set<string>(),
           }),
@@ -227,7 +227,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments: [],
-            viewMode: 'unified',
+            getViewMode: () => 'unified',
             onToggleReviewed: vi.fn(),
             reviewedFiles: new Set<string>(),
           }),
@@ -251,7 +251,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments: [],
-            viewMode: 'unified',
+            getViewMode: () => 'unified',
             onToggleReviewed: vi.fn(),
             reviewedFiles: new Set<string>(),
           }),
@@ -280,7 +280,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments: [],
-            viewMode: 'unified',
+            getViewMode: () => 'unified',
             onToggleReviewed: vi.fn(),
             reviewedFiles: new Set<string>(),
           }),
@@ -311,7 +311,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments: [],
-            viewMode: 'unified',
+            getViewMode: () => 'unified',
             onToggleReviewed: vi.fn(),
             reviewedFiles: new Set<string>(),
           }),
@@ -348,7 +348,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: narratedFiles,
             comments: [],
-            viewMode: 'unified',
+            getViewMode: () => 'unified',
             onToggleReviewed: vi.fn(),
             reviewedFiles: new Set<string>(),
           }),
@@ -379,7 +379,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: narratedFiles,
             comments: [],
-            viewMode: 'unified',
+            getViewMode: () => 'unified',
             onToggleReviewed,
             reviewedFiles: new Set([narratedFiles[0]!.path]),
           }),
@@ -412,7 +412,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments: [],
-            viewMode: 'unified',
+            getViewMode: () => 'unified',
             onToggleReviewed: vi.fn(),
             reviewedFiles,
             onScrollToFile,
@@ -486,7 +486,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments: [],
-            viewMode: 'unified',
+            getViewMode: () => 'unified',
             onToggleReviewed: vi.fn(),
             reviewedFiles: new Set<string>(),
           }),
@@ -507,7 +507,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments: [],
-            viewMode: 'unified',
+            getViewMode: () => 'unified',
             onToggleReviewed: vi.fn(),
             reviewedFiles: new Set<string>(),
           }),
@@ -534,7 +534,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments: [],
-            viewMode: 'current',
+            getViewMode: () => 'full',
             onToggleReviewed: vi.fn(),
             reviewedFiles: new Set<string>(),
           }),
@@ -561,7 +561,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments: [],
-            viewMode: 'current',
+            getViewMode: () => 'full',
             onToggleReviewed: vi.fn(),
             reviewedFiles: new Set<string>(),
           }),
@@ -615,7 +615,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments,
-            viewMode: 'unified',
+            getViewMode: () => 'unified',
             onToggleReviewed: vi.fn(),
             reviewedFiles: new Set<string>(),
           }),
@@ -640,7 +640,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments,
-            viewMode: 'unified',
+            getViewMode: () => 'unified',
             onToggleReviewed: vi.fn(),
             reviewedFiles: new Set<string>(),
           }),
@@ -688,7 +688,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments,
-            viewMode: 'unified',
+            getViewMode: () => 'unified',
             onToggleReviewed: vi.fn(),
             reviewedFiles: new Set<string>(),
           }),
@@ -717,7 +717,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments,
-            viewMode: 'unified',
+            getViewMode: () => 'unified',
             onToggleReviewed: vi.fn(),
             reviewedFiles: new Set<string>(),
           }),
@@ -745,7 +745,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments: [],
-            viewMode: 'unified',
+            getViewMode: () => 'unified',
             onToggleReviewed: vi.fn(),
             reviewedFiles: new Set<string>(),
           }),
@@ -767,7 +767,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments: [],
-            viewMode: 'unified',
+            getViewMode: () => 'unified',
             onToggleReviewed: vi.fn(),
             reviewedFiles: new Set<string>(),
           }),
@@ -798,7 +798,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments: [],
-            viewMode: 'unified',
+            getViewMode: () => 'unified',
             onToggleReviewed,
             reviewedFiles: new Set<string>(),
           }),
@@ -829,7 +829,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments: [],
-            viewMode: 'unified',
+            getViewMode: () => 'unified',
             onToggleReviewed,
             reviewedFiles: new Set<string>(),
             getHoveredFileIndex: () => 1,
@@ -851,7 +851,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments: [],
-            viewMode: 'unified',
+            getViewMode: () => 'unified',
             onToggleReviewed,
             reviewedFiles: new Set<string>(),
             getHoveredFileIndex: () => 1,
@@ -882,7 +882,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments: [],
-            viewMode: 'unified',
+            getViewMode: () => 'unified',
             onToggleReviewed,
             reviewedFiles: new Set<string>(),
           }),
@@ -905,7 +905,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments: [],
-            viewMode: 'unified',
+            getViewMode: () => 'unified',
             onToggleReviewed,
             reviewedFiles: new Set<string>(),
           }),
@@ -936,7 +936,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments: [],
-            viewMode: 'unified',
+            getViewMode: () => 'unified',
             onToggleReviewed,
             reviewedFiles: new Set<string>(['file1.js']),
           }),
@@ -967,7 +967,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments: [],
-            viewMode: 'unified',
+            getViewMode: () => 'unified',
             onToggleReviewed,
             reviewedFiles: new Set<string>(['file2.js']),
           }),
@@ -999,7 +999,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments: [],
-            viewMode: 'unified',
+            getViewMode: () => 'unified',
             onToggleReviewed: vi.fn(),
             reviewedFiles: new Set<string>(),
           }),
@@ -1035,7 +1035,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments: [],
-            viewMode: 'unified',
+            getViewMode: () => 'unified',
             onToggleReviewed: vi.fn(),
             reviewedFiles: new Set<string>(),
           }),
@@ -1065,7 +1065,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments: [],
-            viewMode: 'unified',
+            getViewMode: () => 'unified',
             onToggleReviewed: vi.fn(),
             reviewedFiles: new Set<string>(),
             onRefresh,
@@ -1086,7 +1086,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments: [],
-            viewMode: 'unified',
+            getViewMode: () => 'unified',
             onToggleReviewed: vi.fn(),
             reviewedFiles: new Set<string>(),
           }),
@@ -1108,7 +1108,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments: [],
-            viewMode: 'unified',
+            getViewMode: () => 'unified',
             onToggleReviewed: vi.fn(),
             reviewedFiles: new Set<string>(),
             onCreateComment,
@@ -1140,7 +1140,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments: [],
-            viewMode: 'unified',
+            getViewMode: () => 'unified',
             onToggleReviewed: vi.fn(),
             reviewedFiles: new Set<string>(),
             onCreateComment,
@@ -1173,7 +1173,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments: [],
-            viewMode: 'split',
+            getViewMode: () => 'split',
             onToggleReviewed: vi.fn(),
             reviewedFiles: new Set<string>(),
           }),
@@ -1203,7 +1203,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments: [],
-            viewMode: 'split',
+            getViewMode: () => 'split',
             onToggleReviewed: vi.fn(),
             reviewedFiles: new Set<string>(),
           }),
@@ -1234,7 +1234,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments: [],
-            viewMode: 'unified',
+            getViewMode: () => 'unified',
             onToggleReviewed: vi.fn(),
             reviewedFiles: new Set<string>(),
           }),
@@ -1277,7 +1277,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments: [],
-            viewMode: 'unified',
+            getViewMode: () => 'unified',
             onToggleReviewed: vi.fn(),
             reviewedFiles: new Set<string>(),
           }),
@@ -1305,7 +1305,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments: [],
-            viewMode: 'unified',
+            getViewMode: () => 'unified',
             onToggleReviewed,
             reviewedFiles: new Set<string>(),
           }),
@@ -1337,7 +1337,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments: [],
-            viewMode: 'unified',
+            getViewMode: () => 'unified',
             onToggleReviewed,
             reviewedFiles: new Set<string>(),
           }),
@@ -1363,7 +1363,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments: [],
-            viewMode: 'unified',
+            getViewMode: () => 'unified',
             onToggleReviewed: vi.fn(),
             reviewedFiles: new Set<string>(),
           }),
@@ -1390,7 +1390,7 @@ describe('useKeyboardNavigation', () => {
           useKeyboardNavigation({
             files: mockFiles,
             comments: [],
-            viewMode: 'split',
+            getViewMode: () => 'split',
             onToggleReviewed: vi.fn(),
             reviewedFiles: new Set<string>(),
           }),

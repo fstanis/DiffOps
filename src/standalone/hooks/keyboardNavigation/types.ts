@@ -35,7 +35,8 @@ export interface CommentNavigationItem {
 export interface UseKeyboardNavigationProps {
   files: DiffFile[];
   comments: CommentNavigationItem[];
-  viewMode?: DiffViewMode;
+  /** Resolves the effective diff view mode of the file at the given index. */
+  getViewMode?: (fileIndex: number) => DiffViewMode;
   reviewedFiles: Set<string>;
   onToggleReviewed: (filePath: string) => void;
   onCreateComment?: () => void;

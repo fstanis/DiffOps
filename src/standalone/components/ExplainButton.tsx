@@ -16,7 +16,7 @@ export const ExplainButton = ({
   onClick,
 }: ExplainButtonProps) => {
   const isDisabled = Boolean(disabledReason);
-  const label = disabledReason ?? 'Explain this change with AI';
+  const label = disabledReason ?? 'Explain this file with AI';
 
   return (
     <button

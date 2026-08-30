@@ -270,7 +270,7 @@ export const DiffChunk = memo(function DiffChunk({
 
   const getCommentLayout = (line: DiffLine): 'left' | 'right' | 'full' => {
     // In unified mode, always use full width for comments
-    if (mode === 'unified' || mode === 'current') {
+    if (mode === 'unified' || mode === 'full') {
       return 'full';
     }
 

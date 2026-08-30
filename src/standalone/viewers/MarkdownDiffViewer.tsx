@@ -11,7 +11,6 @@ import { extractFrontmatter, getFrontmatterLines } from '../utils/frontmatter';
 import { computeFrontmatterDiff } from '../utils/frontmatterDiff';
 import { extractMarkdownText, isElementWithCodeProps, isSafeUrl } from '../utils/markdownUtils';
 
-import { PreviewModeTabs, type PreviewMode } from './PreviewModeTabs';
 import { TextDiffViewer } from './TextDiffViewer';
 import type { DiffViewerBodyProps } from './types';
 
@@ -649,7 +648,7 @@ const MarkdownFullPreview = ({
 
 export function MarkdownDiffViewer(props: DiffViewerBodyProps) {
   const { file, baseCommitish, targetCommitish, mergedChunks, syntaxTheme } = props;
-  const [mode, setMode] = useState<PreviewMode>('diff');
+  const { viewMode, onViewModeChange } = props;
   const [contents, setContents] = useState<PreviewContents>({ base: null, target: null });
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -811,20 +810,18 @@ export function MarkdownDiffViewer(props: DiffViewerBodyProps) {
   );
 
   useEffect(() => {
-    if (mode === 'full-preview' && !hasFullPreview) {
-      setMode('diff-preview');
+    if (viewMode === 'full-preview' && !hasFullPreview) {
+      onViewModeChange('diff-preview');
     }
-  }, [hasFullPreview, mode]);
+  }, [hasFullPreview, viewMode, onViewModeChange]);
+
+  const isTextMode = viewMode === 'unified' || viewMode === 'split' || viewMode === 'full';
 
   return (
     <div className="bg-github-bg-primary">
-      <div className="flex items-center justify-between border-b border-github-border px-4 py-2">
-        <PreviewModeTabs mode={mode} hasFullPreview={hasFullPreview} onModeChange={setMode} />
-      </div>
+      {isTextMode && <TextDiffViewer {...props} />}
 
-      {mode === 'diff' && <TextDiffViewer {...props} />}
-
-      {mode === 'diff-preview' && (
+      {viewMode === 'diff-preview' && (
         <div className="p-4">
           {partialFailureLabel && (
             <div className="text-sm text-github-text-muted mb-3">{partialFailureLabel}</div>
@@ -840,7 +837,7 @@ export function MarkdownDiffViewer(props: DiffViewerBodyProps) {
         </div>
       )}
 
-      {mode === 'full-preview' && (
+      {viewMode === 'full-preview' && (
         <div className="p-4">
           {isPreviewLoading && (
             <div className="text-sm text-github-text-muted mb-3">Loading preview...</div>

@@ -9,7 +9,8 @@ import type { DiffViewerBodyProps } from './types';
 describe('ImageDiffViewer', () => {
   const baseProps: Omit<DiffViewerBodyProps, 'file'> = {
     threads: [],
-    diffMode: 'unified',
+    viewMode: 'unified',
+    onViewModeChange: vi.fn(),
     mergedChunks: [],
     isExpandLoading: false,
     expandHiddenLines: vi.fn().mockResolvedValue(undefined),
@@ -77,7 +78,7 @@ describe('ImageDiffViewer', () => {
         chunks: [],
       };
 
-      renderViewer(modifiedFile, { diffMode: 'split' });
+      renderViewer(modifiedFile, { viewMode: 'split' });
 
       expect(screen.getByText('Modified Image')).toBeInTheDocument();
       expect(screen.getByText('Previous version:')).toBeInTheDocument();
@@ -87,7 +88,7 @@ describe('ImageDiffViewer', () => {
       expect(images).toHaveLength(2);
     });
 
-    it('renders only the new image in current mode', () => {
+    it('renders only the new image in full mode', () => {
       const modifiedFile: DiffFile = {
         path: 'test.jpg',
         oldPath: 'test.jpg',
@@ -97,7 +98,7 @@ describe('ImageDiffViewer', () => {
         chunks: [],
       };
 
-      renderViewer(modifiedFile, { diffMode: 'current' });
+      renderViewer(modifiedFile, { viewMode: 'full' });
 
       expect(screen.getByText('Modified Image')).toBeInTheDocument();
       expect(screen.getByText('Current version:')).toBeInTheDocument();

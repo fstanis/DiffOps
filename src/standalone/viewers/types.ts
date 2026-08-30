@@ -1,6 +1,6 @@
 import type { ComponentType } from 'react';
 
-import type { CommentThread, DiffFile, DiffSide, DiffViewMode, LineNumber } from '../../types/diff';
+import type { CommentThread, DiffFile, DiffSide, FileViewMode, LineNumber } from '../../types/diff';
 import type { AppearanceSettings } from '../components/SettingsModal';
 import type { CursorPosition } from '../hooks/keyboardNavigation';
 import type { MergedChunk } from '../hooks/useExpandedLines';
@@ -9,7 +9,9 @@ export type DiffViewerBodyProps = {
   file: DiffFile;
   threads: CommentThread[];
   showAuthorBadges?: boolean;
-  diffMode: DiffViewMode;
+  viewMode: FileViewMode;
+  /** Reports mode reconciliation (e.g. full-preview falling back to diff-preview). */
+  onViewModeChange: (mode: FileViewMode) => void;
   syntaxTheme?: AppearanceSettings['syntaxTheme'];
   baseCommitish?: string;
   targetCommitish?: string;

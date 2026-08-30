@@ -1,12 +1,4 @@
-import {
-  Columns,
-  AlignLeft,
-  FileText,
-  Settings,
-  PanelLeftClose,
-  PanelLeft,
-  Keyboard,
-} from 'lucide-react';
+import { RotateCcw, Settings, PanelLeftClose, PanelLeft, Keyboard } from 'lucide-react';
 import { Fragment, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 
 import {
@@ -17,11 +9,17 @@ import {
   type DiffViewMode,
   type DiffSide,
   type ExplainStatusResponse,
+  type FileViewMode,
   type LineNumber,
   type CommentThread,
   type RevisionsResponse,
 } from '../types/diff';
-import { DEFAULT_DIFF_VIEW_MODE, normalizeDiffViewMode } from '../utils/diffMode';
+import { DEFAULT_DIFF_VIEW_MODE, DEFAULT_FILE_VIEW_MODE } from '../utils/diffMode';
+import {
+  loadFileViewModes,
+  saveFileViewModes,
+  type FileViewModesByPath,
+} from '../utils/fileViewModes';
 import { mergeCommentThreads } from '../utils/commentImports';
 import {
   createDiffSelection,
@@ -70,25 +68,11 @@ import { buildFileLineIndex, isThreadOutdated } from './utils/outdatedComments';
 const EMPTY_COMMENT_THREADS: CommentThread[] = [];
 const EMPTY_DIFF_FILES: DiffFile[] = [];
 const EMPTY_MERGED_CHUNKS: MergedChunk[] = [];
-const DIFF_VIEW_MODE_STORAGE_KEY = 'diffops.diffViewMode';
 const SIDEBAR_WIDTH_STORAGE_KEY = 'diffops.sidebarWidth';
 const SIDEBAR_OPEN_STORAGE_KEY = 'diffops.sidebarOpen';
 const SIDEBAR_MIN_WIDTH = 200;
 const SIDEBAR_MAX_WIDTH = 600;
 const SIDEBAR_DEFAULT_WIDTH = 280;
-
-const parseDiffViewMode = (value: unknown): DiffViewMode | null => {
-  switch (value) {
-    case 'split':
-    case 'side-by-side':
-    case 'unified':
-    case 'inline':
-    case 'current':
-      return normalizeDiffViewMode(value);
-    default:
-      return null;
-  }
-};
 
 /** Builds the /api/diff failure message, preferring the endpoint's error detail. */
 const diffFetchErrorMessage = async (
@@ -119,20 +103,6 @@ const diffFetchErrorMessage = async (
   const shortBody = bodyText.length > 0 && bodyText.length <= 200 ? `: ${bodyText}` : '';
   return `Failed to fetch diff data (HTTP ${response.status})${shortBody}`;
 };
-
-const getStoredDiffViewMode = (): DiffViewMode | null => {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-
-  try {
-    return parseDiffViewMode(window.localStorage.getItem(DIFF_VIEW_MODE_STORAGE_KEY));
-  } catch {
-    return null;
-  }
-};
-
-const getInitialDiffViewMode = () => getStoredDiffViewMode() ?? DEFAULT_DIFF_VIEW_MODE;
 
 const clampSidebarWidth = (width: number) =>
   Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, width));
@@ -173,7 +143,7 @@ const getInitialFileTreeOpen = () => getStoredSidebarOpen() ?? true;
 function App() {
   const [diffData, setDiffData] = useState<DiffResponse | null>(null);
   const [diffDataVersion, setDiffDataVersion] = useState(0);
-  const [diffMode, setDiffMode] = useState<DiffViewMode>(getInitialDiffViewMode);
+  const [fileViewModes, setFileViewModes] = useState<FileViewModesByPath>(loadFileViewModes);
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -485,21 +455,38 @@ function App() {
     setIsFileTreeOpen(false);
   }, []);
 
-  const handleDiffModeChange = useCallback((mode: DiffViewMode) => {
-    setDiffMode(mode);
-    try {
-      window.localStorage.setItem(DIFF_VIEW_MODE_STORAGE_KEY, mode);
-    } catch {
-      // Ignore localStorage errors (e.g. disabled storage).
-    }
-    saveClientSettings({ diffViewMode: mode });
+  const handleFileViewModeChange = useCallback((filePath: string, mode: FileViewMode) => {
+    setFileViewModes((prev) => (prev[filePath] === mode ? prev : { ...prev, [filePath]: mode }));
   }, []);
 
-  // Current view needs /api/blob, which stdin diffs cannot serve; fall back
-  // to unified without overwriting the persisted preference.
+  useEffect(() => {
+    saveFileViewModes(fileViewModes);
+  }, [fileViewModes]);
+
   const isStdinDiff = diffData?.baseCommitish === 'stdin' || diffData?.targetCommitish === 'stdin';
-  const effectiveDiffMode: DiffViewMode =
-    isStdinDiff && diffMode === 'current' ? 'unified' : diffMode;
+
+  // Resolves the effective per-file mode, applying the fallbacks the stored
+  // preference cannot satisfy: full view and the full preview need /api/blob,
+  // which stdin diffs cannot serve, and split/full are unreadable at mobile
+  // widths.
+  const resolveFileViewMode = useCallback(
+    (file: DiffFile): FileViewMode => {
+      const stored = fileViewModes[file.path] ?? DEFAULT_FILE_VIEW_MODE;
+      if (isStdinDiff) {
+        if (stored === 'full') {
+          return 'unified';
+        }
+        if (stored === 'full-preview') {
+          return 'diff-preview';
+        }
+      }
+      if (isMobile && (stored === 'split' || stored === 'full')) {
+        return 'unified';
+      }
+      return stored;
+    },
+    [fileViewModes, isStdinDiff, isMobile],
+  );
 
   // Expand state is lifted so navigation and rendering share one merged-chunks view.
   const {
@@ -559,6 +546,29 @@ function App() {
         getMergedChunksForVersion(mergedChunksState, diffDataVersion, file.path) || file.chunks,
     }));
   }, [displayFiles, diffDataVersion, mergedChunksState]);
+
+  // One click restores the classic split layout for every file in the diff.
+  const handleResetFileViewModes = useCallback(() => {
+    const resetModes: FileViewModesByPath = {};
+    displayFiles.forEach((file) => {
+      resetModes[file.path] = 'split';
+    });
+    setFileViewModes(resetModes);
+  }, [displayFiles]);
+
+  // Preview modes have no navigable diff rows; the closest navigation analog
+  // is the unified layout.
+  const getNavigationViewMode = useCallback(
+    (fileIndex: number): DiffViewMode => {
+      const file = navigableFiles[fileIndex];
+      if (!file) {
+        return DEFAULT_DIFF_VIEW_MODE;
+      }
+      const mode = resolveFileViewMode(file);
+      return mode === 'split' || mode === 'full' ? mode : 'unified';
+    },
+    [navigableFiles, resolveFileViewMode],
+  );
 
   const narrationCardsByPath = useMemo(() => {
     const cards = new Map<string, string>();
@@ -695,7 +705,7 @@ function App() {
     useKeyboardNavigation({
       files: navigableFiles,
       comments: normalizedThreads,
-      viewMode: effectiveDiffMode,
+      getViewMode: getNavigationViewMode,
       reviewedFiles: viewedFiles,
       onToggleReviewed: toggleFileReviewed,
       getHoveredFileIndex,
@@ -803,18 +813,19 @@ function App() {
   const handleNarrationPathNavigate = useCallback(
     (path: string) => {
       const targetIndex = displayFiles.findIndex((file) => file.path === path);
-      if (targetIndex === -1) {
+      const targetFile = targetIndex >= 0 ? displayFiles[targetIndex] : undefined;
+      if (!targetFile) {
         return;
       }
       setCursorPosition({
         fileIndex: targetIndex,
         chunkIndex: 0,
         lineIndex: 0,
-        side: effectiveDiffMode === 'split' ? 'left' : 'right',
+        side: resolveFileViewMode(targetFile) === 'split' ? 'left' : 'right',
       });
       scrollFileSectionIntoView(path);
     },
-    [displayFiles, effectiveDiffMode, setCursorPosition, scrollFileSectionIntoView],
+    [displayFiles, resolveFileViewMode, setCursorPosition, scrollFileSectionIntoView],
   );
 
   const handleCommentTriggerHandled = useCallback(() => {
@@ -926,12 +937,6 @@ function App() {
     };
   }, []);
 
-  useEffect(() => {
-    if (isMobile && diffMode !== 'unified') {
-      setDiffMode('unified');
-    }
-  }, [diffMode, isMobile]);
-
   // Hydrate settings from the server config so they survive port changes;
   // seed unknown keys from localStorage.
   useEffect(() => {
@@ -943,16 +948,6 @@ function App() {
       }
 
       const seed: Record<string, unknown> = {};
-
-      const remoteDiffViewMode = parseDiffViewMode(client.diffViewMode);
-      if (remoteDiffViewMode) {
-        setDiffMode(remoteDiffViewMode);
-      } else {
-        const localDiffViewMode = getStoredDiffViewMode();
-        if (localDiffViewMode) {
-          seed.diffViewMode = localDiffViewMode;
-        }
-      }
 
       if (typeof client.sidebarWidth === 'number' && Number.isFinite(client.sidebarWidth)) {
         setSidebarWidth(clampSidebarWidth(client.sidebarWidth));
@@ -1364,59 +1359,21 @@ function App() {
             }`}
           >
             <div className={`flex flex-wrap items-center ${isMobile ? 'gap-2' : 'gap-3'}`}>
-              {!isMobile && (
-                <div className="flex bg-github-bg-tertiary border border-github-border rounded-md p-1">
-                  <button
-                    onClick={() => handleDiffModeChange('split')}
-                    className={`px-3 py-1.5 text-xs font-medium rounded transition-all duration-200 flex items-center gap-1.5 cursor-pointer ${
-                      effectiveDiffMode === 'split'
-                        ? 'bg-github-bg-primary text-github-text-primary shadow-sm'
-                        : 'text-github-text-secondary hover:text-github-text-primary'
-                    }`}
-                  >
-                    <Columns size={14} />
-                    Split
-                  </button>
-                  <button
-                    onClick={() => handleDiffModeChange('unified')}
-                    className={`px-3 py-1.5 text-xs font-medium rounded transition-all duration-200 flex items-center gap-1.5 cursor-pointer ${
-                      effectiveDiffMode === 'unified'
-                        ? 'bg-github-bg-primary text-github-text-primary shadow-sm'
-                        : 'text-github-text-secondary hover:text-github-text-primary'
-                    }`}
-                  >
-                    <AlignLeft size={14} />
-                    Unified
-                  </button>
-                  <button
-                    onClick={() => handleDiffModeChange('current')}
-                    disabled={isStdinDiff}
-                    title={
-                      isStdinDiff
-                        ? 'Current view is unavailable for stdin diffs'
-                        : 'Show the whole new file with changed lines marked'
-                    }
-                    className={`px-3 py-1.5 text-xs font-medium rounded transition-all duration-200 flex items-center gap-1.5 ${
-                      isStdinDiff
-                        ? 'text-github-text-secondary opacity-50 cursor-not-allowed'
-                        : 'cursor-pointer'
-                    } ${
-                      effectiveDiffMode === 'current'
-                        ? 'bg-github-bg-primary text-github-text-primary shadow-sm'
-                        : 'text-github-text-secondary hover:text-github-text-primary'
-                    }`}
-                  >
-                    <FileText size={14} />
-                    Current
-                  </button>
-                </div>
-              )}
               <Checkbox
                 checked={ignoreWhitespace}
                 onChange={setIgnoreWhitespace}
                 label="Ignore Whitespace"
                 title={ignoreWhitespace ? 'Show whitespace changes' : 'Ignore whitespace changes'}
               />
+              <button
+                type="button"
+                onClick={handleResetFileViewModes}
+                className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded transition-colors duration-200 text-github-text-secondary hover:text-github-text-primary cursor-pointer"
+                title="Reset every file to the split view"
+              >
+                <RotateCcw size={14} />
+                Reset
+              </button>
               <ReloadButton
                 shouldReload={shouldReload}
                 isReloading={isReloading}
@@ -1645,16 +1602,17 @@ function App() {
                         file={file}
                         threads={fileThreads}
                         showAuthorBadges={showAuthorBadges}
-                        diffMode={effectiveDiffMode}
+                        viewMode={resolveFileViewMode(file)}
+                        onFileViewModeChange={handleFileViewModeChange}
                         reviewedFiles={viewedFiles}
                         isChangedSinceViewed={changedSinceViewedFiles.has(file.path)}
                         onToggleReviewed={handleViewedButtonToggle}
                         collapsedFiles={collapsedFiles}
                         onToggleCollapsed={toggleFileCollapsed}
                         onToggleAllCollapsed={toggleAllFilesCollapsed}
-                        allFiles={diffData.files}
                         commitLabel={diffData.commit}
                         explainStatus={explainStatus}
+                        explainSessionQueryString={commentSessionQueryString}
                         onAddComment={handleAddComment}
                         onGenerateThreadPrompt={handleGenerateThreadPrompt}
                         onRemoveThread={removeThread}

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'bun:test';
 
 import type { DiffFile } from '../../types/diff';
@@ -64,7 +64,8 @@ const mergedChunks: MergedChunk[] = [
 const createProps = (overrides: Partial<DiffViewerBodyProps> = {}): DiffViewerBodyProps => ({
   file: createFile(),
   threads: [],
-  diffMode: 'unified',
+  viewMode: 'unified',
+  onViewModeChange: vi.fn(),
   mergedChunks,
   isExpandLoading: false,
   expandHiddenLines: vi.fn().mockResolvedValue(undefined),
@@ -92,39 +93,34 @@ describe('NotebookDiffViewer', () => {
     vi.clearAllMocks();
   });
 
-  it('shows Full Preview tab only after notebook content loads', async () => {
+  it('loads and renders the full preview of the notebook', async () => {
     (global.fetch as any).mockResolvedValue({
       ok: true,
       text: async () => notebookContent,
     });
 
-    renderViewer();
-
-    expect(screen.queryByRole('button', { name: 'Full Preview' })).not.toBeInTheDocument();
-
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Full Preview' })).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Full Preview' }));
+    renderViewer({ viewMode: 'full-preview' });
 
     expect(await screen.findByText('Notebook title')).toBeInTheDocument();
     expect(global.fetch).toHaveBeenCalledWith('/api/blob/docs%2Fnotebook.ipynb?ref=HEAD~1');
     expect(global.fetch).toHaveBeenCalledWith('/api/blob/docs%2Fnotebook.ipynb?ref=HEAD');
   });
 
-  it('does not show Full Preview tab when notebook content cannot be fetched', async () => {
+  it('falls back to diff-preview when notebook content cannot be fetched', async () => {
+    const onViewModeChange = vi.fn();
     (global.fetch as any).mockResolvedValue({
       ok: false,
       text: async () => '',
     });
 
-    renderViewer();
+    renderViewer({ viewMode: 'full-preview', onViewModeChange });
 
     await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledTimes(2);
+      expect(global.fetch).toHaveBeenCalled();
     });
 
-    expect(screen.queryByRole('button', { name: 'Full Preview' })).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(onViewModeChange).toHaveBeenCalledWith('diff-preview');
+    });
   });
 });

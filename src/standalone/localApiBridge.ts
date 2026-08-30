@@ -1,4 +1,4 @@
-import type { DiffCommentThread, DiffResponse, Narration } from '../types/diff';
+import type { DiffCommentThread, DiffResponse, FileExplanation, Narration } from '../types/diff';
 import {
   mergeCommentImports,
   mergeCommentThreads,
@@ -11,8 +11,10 @@ import type { RepositoryEngine } from './gitEngine/gitEngine';
 import type { WalkedFile } from './gitEngine/walkDirectory';
 import {
   buildCommentSessionKey,
+  buildFileExplanationKey,
   getStandaloneStore,
   type StandaloneStore,
+  type StoredFileExplanation,
   type StoredNarration,
 } from './persistence/standaloneStore';
 import {
@@ -398,6 +400,84 @@ export const installLocalApiBridge = (options: LocalApiBridgeOptions = {}): Loca
     return jsonResponse({ success: true });
   };
 
+  const isFileExplanationShape = (value: unknown): value is FileExplanation =>
+    isPlainObject(value) &&
+    typeof value.fileSummary === 'string' &&
+    Array.isArray(value.symbols) &&
+    Array.isArray(value.additionalFilesNeeded) &&
+    value.additionalFilesNeeded.every((path) => typeof path === 'string');
+
+  const handleExplanationGet = async (requestUrl: URL): Promise<Response> => {
+    const path = requestUrl.searchParams.get('path');
+    if (!path) {
+      return jsonResponse({ error: 'Missing file path' }, 400);
+    }
+
+    let stored: StoredFileExplanation | undefined;
+    try {
+      stored = await store.loadFileExplanation(
+        buildFileExplanationKey(commentSessionKey(requestUrl), path),
+      );
+    } catch (error) {
+      console.warn('diffops: failed to load persisted file explanation:', error);
+    }
+    return jsonResponse({ explanation: stored ?? null });
+  };
+
+  const handleExplanationPut = async (
+    init: RequestInit | undefined,
+    requestUrl: URL,
+  ): Promise<Response> => {
+    const path = requestUrl.searchParams.get('path');
+    if (!path) {
+      return jsonResponse({ error: 'Missing file path' }, 400);
+    }
+
+    let payload: {
+      explanation?: unknown;
+      includedSupportingFiles?: unknown;
+      fingerprint?: unknown;
+    } | null = null;
+    try {
+      const parsed = parseThreadsPayload(init);
+      if (isPlainObject(parsed)) {
+        payload = parsed as {
+          explanation?: unknown;
+          includedSupportingFiles?: unknown;
+          fingerprint?: unknown;
+        };
+      }
+    } catch {
+      payload = null;
+    }
+
+    const explanation = payload?.explanation;
+    const includedSupportingFiles = payload?.includedSupportingFiles;
+    const fingerprint = payload?.fingerprint;
+    const isValidPayload =
+      isFileExplanationShape(explanation) &&
+      Array.isArray(includedSupportingFiles) &&
+      includedSupportingFiles.every((filePath) => typeof filePath === 'string') &&
+      typeof fingerprint === 'string' &&
+      fingerprint.length > 0;
+    if (!isValidPayload) {
+      return jsonResponse({ error: 'Invalid file explanation payload' }, 400);
+    }
+
+    try {
+      await store.saveFileExplanation(
+        buildFileExplanationKey(commentSessionKey(requestUrl), path),
+        explanation,
+        includedSupportingFiles as string[],
+        fingerprint,
+      );
+    } catch (error) {
+      console.warn('diffops: failed to persist file explanation:', error);
+      return jsonResponse({ error: 'Failed to persist file explanation' }, 500);
+    }
+    return jsonResponse({ success: true });
+  };
+
   const handleRepoDiff = async (
     repository: ActiveRepository,
     requestUrl: URL,
@@ -583,6 +663,13 @@ export const installLocalApiBridge = (options: LocalApiBridgeOptions = {}): Loca
         return handleNarrationPut(init, key);
       }
       return handleNarrationGet(key);
+    }
+
+    if (requestUrl.pathname === '/api/explanation') {
+      if (init?.method === 'PUT' || init?.method === 'POST') {
+        return handleExplanationPut(init, requestUrl);
+      }
+      return handleExplanationGet(requestUrl);
     }
 
     // /ai-gateway/* passes through to the real network so the AI features

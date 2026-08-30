@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import { DEFAULT_DIFF_VIEW_MODE } from '../../utils/diffMode';
+import type { DiffViewMode } from '../../types/diff';
 
 import type { DiffViewerBodyProps } from './types';
 
@@ -14,11 +14,11 @@ const imageBlobUrl = (path: string, ref: string): string => `/api/blob/${path}?r
 
 export function ImageDiffViewer({
   file,
-  diffMode,
+  viewMode,
   baseCommitish,
   targetCommitish,
 }: DiffViewerBodyProps) {
-  const mode = diffMode ?? DEFAULT_DIFF_VIEW_MODE;
+  const mode: DiffViewMode = viewMode === 'split' || viewMode === 'full' ? viewMode : 'unified';
   const isDeleted = file.status === 'deleted';
   const isAdded = file.status === 'added';
   const isModified = file.status === 'modified' || file.status === 'renamed';
@@ -159,8 +159,8 @@ export function ImageDiffViewer({
 
   // For modified/renamed files, show both versions
   if (isModified) {
-    // Current mode shows only the new version of the image
-    if (mode === 'current') {
+    // Full mode shows only the new version of the image
+    if (mode === 'full') {
       return (
         <div className="bg-github-bg-primary p-4">
           <div className="text-center mb-4">

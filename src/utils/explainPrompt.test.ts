@@ -2,7 +2,10 @@ import { describe, expect, it } from 'bun:test';
 
 import { type DiffChunk, type DiffFile, type DiffLine } from '../types/diff';
 import {
-  buildExplainPrompt,
+  MIN_EXPLAINABLE_NON_EMPTY_LINES,
+  buildExplainReaskPrompt,
+  buildWholeFileExplainPrompt,
+  countNonEmptyLines,
   EXPLAIN_PROMPT_MAX_BYTES,
   hasExplainableDiffContent,
   measureExplainPromptBytes,
@@ -33,139 +36,107 @@ const createFile = (overrides: Partial<DiffFile> = {}): DiffFile => ({
   ...overrides,
 });
 
-describe('buildExplainPrompt', () => {
-  it('includes the changeset header with revision range and changed file list', () => {
-    const file = createFile({
-      chunks: [createChunk([createLine('normal', 'shared')])],
-    });
-    const allFiles = [
-      file,
-      createFile({ path: 'src/new.ts', status: 'added' }),
-      createFile({ path: 'src/gone.ts', status: 'deleted' }),
-      createFile({ path: 'src/moved.ts', status: 'renamed', oldPath: 'src/old.ts' }),
-    ];
-
-    const prompt = buildExplainPrompt({ file, allFiles, commitLabel: 'abc1234...def5678' });
-
-    expect(prompt).toContain('Revision range: abc1234...def5678');
-    expect(prompt).toContain('- modified: src/app.ts');
-    expect(prompt).toContain('- added: src/new.ts');
-    expect(prompt).toContain('- deleted: src/gone.ts');
-    expect(prompt).toContain('- renamed: src/old.ts -> src/moved.ts');
-  });
-
-  it('omits the revision range when no commit label is available', () => {
-    const file = createFile({
-      chunks: [createChunk([createLine('normal', 'shared')])],
+describe('buildWholeFileExplainPrompt', () => {
+  it('wraps the whole current file content without any diff', () => {
+    const prompt = buildWholeFileExplainPrompt({
+      path: 'src/app.ts',
+      content: 'import x from "./y";\n\nexport const x = 1;\n',
+      candidateFiles: [],
     });
 
-    const prompt = buildExplainPrompt({ file, allFiles: [file] });
-
-    expect(prompt).not.toContain('Revision range:');
+    expect(prompt).toContain('## File: src/app.ts');
+    expect(prompt).toContain('import x from "./y";');
+    expect(prompt).toContain('export const x = 1;');
+    expect(prompt).not.toContain('Unified diff');
+    expect(prompt).not.toContain('Revision range');
+    expect(prompt).not.toContain('Changeset');
   });
 
-  it('reconstructs the unified diff for a modified file with hunk headers and prefixes', () => {
-    const file = createFile({
-      chunks: [
-        createChunk(
-          [
-            createLine('normal', 'context line'),
-            createLine('delete', 'old line'),
-            createLine('add', 'new line'),
-          ],
-          '@@ -10,7 +10,8 @@ function hello()',
-        ),
+  it('offers the candidate files and the request rule when candidates exist', () => {
+    const prompt = buildWholeFileExplainPrompt({
+      path: 'src/app.ts',
+      content: 'const x = 1;',
+      candidateFiles: ['src/helper.ts', 'src/util/index.ts'],
+    });
+
+    expect(prompt).toContain('## Files you may request');
+    expect(prompt).toContain('- src/helper.ts');
+    expect(prompt).toContain('- src/util/index.ts');
+    expect(prompt).toContain('additionalFilesNeeded');
+  });
+
+  it('uses the no-request instructions when the candidate list is empty', () => {
+    const prompt = buildWholeFileExplainPrompt({
+      path: 'src/app.ts',
+      content: 'const x = 1;',
+      candidateFiles: [],
+    });
+
+    expect(prompt).not.toContain('## Files you may request');
+    expect(prompt).not.toContain('additionalFilesNeeded');
+    expect(prompt).toContain('The file is all you get');
+  });
+
+  it('states the outline contract: reading order, skipped trivia, natural contracts', () => {
+    const prompt = buildWholeFileExplainPrompt({
+      path: 'src/app.ts',
+      content: 'const x = 1;',
+      candidateFiles: [],
+    });
+
+    expect(prompt).toContain('order a reviewer should');
+    expect(prompt).toContain('Skip trivial or self-explanatory symbols');
+    expect(prompt).toContain('a colleague would');
+  });
+});
+
+describe('buildExplainReaskPrompt', () => {
+  it('includes the main file and every supporting file whole, labeled', () => {
+    const prompt = buildExplainReaskPrompt({
+      path: 'src/app.ts',
+      content: 'import { helper } from "./helper";',
+      supportingFiles: [
+        { path: 'src/helper.ts', content: 'export const helper = 1;' },
+        { path: 'src/types.ts', content: 'export type A = string;' },
       ],
     });
 
-    const prompt = buildExplainPrompt({ file, allFiles: [file] });
-
-    expect(prompt).toContain('## File: src/app.ts (modified)');
-    expect(prompt).toContain('Unified diff of the change:');
-    expect(prompt).toContain(
-      ['@@ -10,7 +10,8 @@ function hello()', ' context line', '-old line', '+new line'].join('\n'),
-    );
+    expect(prompt).toContain('## File: src/app.ts');
+    expect(prompt).toContain('import { helper } from "./helper";');
+    expect(prompt).toContain('## Supporting files');
+    expect(prompt).toContain('### src/helper.ts');
+    expect(prompt).toContain('export const helper = 1;');
+    expect(prompt).toContain('### src/types.ts');
+    expect(prompt).toContain('export type A = string;');
   });
 
-  it('joins multiple hunks for a modified file', () => {
-    const file = createFile({
-      chunks: [
-        createChunk([createLine('add', 'first')], '@@ -1,1 +1,1 @@'),
-        createChunk([createLine('add', 'second')], '@@ -20,1 +20,1 @@'),
-      ],
+  it('tells the model this is the final round', () => {
+    const prompt = buildExplainReaskPrompt({
+      path: 'src/app.ts',
+      content: 'const x = 1;',
+      supportingFiles: [{ path: 'src/helper.ts', content: 'export const helper = 1;' }],
     });
 
-    const prompt = buildExplainPrompt({ file, allFiles: [file] });
+    expect(prompt).toContain('final round');
+    expect(prompt).toContain('do not request more files');
+    expect(prompt).not.toContain('## Files you may request');
+  });
+});
 
-    expect(prompt).toContain(['@@ -1,1 +1,1 @@', '+first'].join('\n'));
-    expect(prompt).toContain(['@@ -20,1 +20,1 @@', '+second'].join('\n'));
+describe('countNonEmptyLines', () => {
+  it('counts only lines with non-whitespace content', () => {
+    expect(countNonEmptyLines([])).toBe(0);
+    expect(countNonEmptyLines([''])).toBe(0);
+    expect(countNonEmptyLines(['', '   ', '\t'])).toBe(0);
+    expect(countNonEmptyLines(['const a = 1;', '', '   ', 'const b = 2;'])).toBe(2);
   });
 
-  it('reconstructs the whole file content for an added file', () => {
-    const file = createFile({
-      status: 'added',
-      chunks: [
-        createChunk(
-          [
-            createLine('add', 'import x from "y";'),
-            createLine('add', ''),
-            createLine('add', 'export const x = 1;'),
-          ],
-          '@@ -0,0 +1,3 @@',
-        ),
-      ],
-    });
+  it('gates at the documented threshold', () => {
+    const lines = Array.from({ length: MIN_EXPLAINABLE_NON_EMPTY_LINES - 1 }, () => 'x');
+    expect(countNonEmptyLines([...lines, '', '  '])).toBe(MIN_EXPLAINABLE_NON_EMPTY_LINES - 1);
 
-    const prompt = buildExplainPrompt({ file, allFiles: [file] });
-
-    expect(prompt).toContain('## File: src/app.ts (added)');
-    expect(prompt).toContain('Full content of the new file:');
-    expect(prompt).toContain(['import x from "y";', '', 'export const x = 1;'].join('\n'));
-    expect(prompt).not.toContain('+import x from "y";');
-  });
-
-  it('includes the rename note and the change beyond the rename for a renamed file', () => {
-    const file = createFile({
-      status: 'renamed',
-      oldPath: 'src/old-name.ts',
-      path: 'src/new-name.ts',
-      chunks: [createChunk([createLine('normal', 'same'), createLine('add', 'extra')])],
-    });
-
-    const prompt = buildExplainPrompt({ file, allFiles: [file] });
-
-    expect(prompt).toContain('## File: src/new-name.ts (renamed from src/old-name.ts)');
-    expect(prompt).toContain(' same');
-    expect(prompt).toContain('+extra');
-  });
-
-  it('renders the deletion diff for a deleted file', () => {
-    const file = createFile({
-      status: 'deleted',
-      chunks: [
-        createChunk(
-          [createLine('delete', 'removed capability'), createLine('delete', 'second line')],
-          '@@ -1,2 +0,0 @@',
-        ),
-      ],
-    });
-
-    const prompt = buildExplainPrompt({ file, allFiles: [file] });
-
-    expect(prompt).toContain('## File: src/app.ts (deleted)');
-    expect(prompt).toContain('Unified diff of the deletion:');
-    expect(prompt).toContain(['@@ -1,2 +0,0 @@', '-removed capability', '-second line'].join('\n'));
-  });
-
-  it('ends with the short-output instruction', () => {
-    const file = createFile({
-      chunks: [createChunk([createLine('normal', 'shared')])],
-    });
-
-    const prompt = buildExplainPrompt({ file, allFiles: [file] });
-
-    expect(prompt).toContain('Keep the explanation short');
-    expect(prompt).toContain('Markdown is allowed');
+    lines.push('one more');
+    expect(countNonEmptyLines(lines)).toBe(MIN_EXPLAINABLE_NON_EMPTY_LINES);
   });
 });
 
@@ -191,10 +162,11 @@ describe('measureExplainPromptBytes', () => {
   });
 
   it('exposes the size threshold used by both client and server', () => {
-    const file = createFile({
-      chunks: [createChunk(Array.from({ length: 100 }, (_, i) => createLine('add', `line ${i}`)))],
+    const prompt = buildWholeFileExplainPrompt({
+      path: 'src/app.ts',
+      content: Array.from({ length: 100 }, (_, i) => `line ${i}`).join('\n'),
+      candidateFiles: ['src/helper.ts'],
     });
-    const prompt = buildExplainPrompt({ file, allFiles: [file] });
 
     expect(measureExplainPromptBytes(prompt)).toBeLessThan(EXPLAIN_PROMPT_MAX_BYTES);
   });

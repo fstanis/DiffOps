@@ -12,7 +12,7 @@ export function TextDiffViewer({
   file,
   threads,
   showAuthorBadges,
-  diffMode,
+  viewMode,
   syntaxTheme,
   targetCommitish,
   cursor,
@@ -31,12 +31,12 @@ export function TextDiffViewer({
   commentTrigger,
   onCommentTriggerHandled,
 }: DiffViewerBodyProps) {
-  // Current mode renders the whole new file with changed lines marked.
+  // Full mode renders the whole new file with changed lines marked.
   // Deleted files have no new side, so they stay on the unified diff.
-  const useCurrentView = diffMode === 'current' && file.status !== 'deleted';
-  const currentContent = useCurrentFileContent(file, useCurrentView ? targetCommitish : undefined);
+  const isFullView = viewMode === 'full' && file.status !== 'deleted';
+  const currentContent = useCurrentFileContent(file, isFullView ? targetCommitish : undefined);
 
-  if (useCurrentView) {
+  if (isFullView) {
     if (currentContent.isLoading) {
       return (
         <div className="bg-github-bg-primary px-4 py-3 text-sm text-github-text-secondary select-none">
@@ -72,8 +72,9 @@ export function TextDiffViewer({
     // unified diff below.
   }
 
-  // Current mode is not applicable here; render chunks as unified.
-  const chunkMode: DiffViewMode = diffMode === 'current' ? 'unified' : diffMode;
+  // Preview modes never reach the text viewer; full mode is not applicable
+  // here either, so render chunks as unified.
+  const chunkMode: DiffViewMode = viewMode === 'split' ? 'split' : 'unified';
 
   const renderExpandButton = (
     position: 'top' | 'middle' | 'bottom',

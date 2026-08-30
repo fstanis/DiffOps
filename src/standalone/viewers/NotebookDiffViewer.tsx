@@ -9,7 +9,6 @@ import { PrismSyntaxHighlighter } from '../components/PrismSyntaxHighlighter';
 import type { MergedChunk } from '../hooks/useExpandedLines';
 import { extractMarkdownText, isElementWithCodeProps, isSafeUrl } from '../utils/markdownUtils';
 
-import { PreviewModeTabs, type PreviewMode } from './PreviewModeTabs';
 import { TextDiffViewer } from './TextDiffViewer';
 import type { DiffViewerBodyProps } from './types';
 
@@ -944,7 +943,7 @@ const NotebookFullPreview = ({
 
 export function NotebookDiffViewer(props: DiffViewerBodyProps) {
   const { file, baseCommitish, targetCommitish } = props;
-  const [mode, setMode] = useState<PreviewMode>('diff');
+  const { viewMode, onViewModeChange } = props;
   const fallbackPreview = useMemo(
     () => buildNotebookCellsFromDiff(props.mergedChunks),
     [props.mergedChunks],
@@ -1125,7 +1124,7 @@ export function NotebookDiffViewer(props: DiffViewerBodyProps) {
   ]);
 
   useEffect(() => {
-    if (mode !== 'full-preview') {
+    if (viewMode !== 'full-preview') {
       return;
     }
 
@@ -1183,7 +1182,7 @@ export function NotebookDiffViewer(props: DiffViewerBodyProps) {
     fallbackPreview.language,
     fullPreviewCells,
     loadedFullPreviewKey,
-    mode,
+    viewMode,
     previewSource,
     previewSourceKey,
   ]);
@@ -1194,20 +1193,18 @@ export function NotebookDiffViewer(props: DiffViewerBodyProps) {
   );
 
   useEffect(() => {
-    if (mode === 'full-preview' && !hasFullPreview) {
-      setMode('diff-preview');
+    if (viewMode === 'full-preview' && !hasFullPreview) {
+      onViewModeChange('diff-preview');
     }
-  }, [hasFullPreview, mode]);
+  }, [hasFullPreview, viewMode, onViewModeChange]);
+
+  const isTextMode = viewMode === 'unified' || viewMode === 'split' || viewMode === 'full';
 
   return (
     <div className="bg-github-bg-primary">
-      <div className="flex items-center justify-between border-b border-github-border px-4 py-2">
-        <PreviewModeTabs mode={mode} hasFullPreview={hasFullPreview} onModeChange={setMode} />
-      </div>
+      {isTextMode && <TextDiffViewer {...props} />}
 
-      {mode === 'diff' && <TextDiffViewer {...props} />}
-
-      {mode === 'diff-preview' && (
+      {viewMode === 'diff-preview' && (
         <div className="p-4">
           {previewState.status === 'loading' && (
             <div className="text-xs text-github-text-muted mb-3">Loading notebook preview…</div>
@@ -1232,7 +1229,7 @@ export function NotebookDiffViewer(props: DiffViewerBodyProps) {
         </div>
       )}
 
-      {mode === 'full-preview' && (
+      {viewMode === 'full-preview' && (
         <div className="p-4">
           {isFullPreviewLoading && (
             <div className="text-sm text-github-text-muted mb-3">Loading preview...</div>

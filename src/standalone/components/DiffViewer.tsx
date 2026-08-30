@@ -2,17 +2,19 @@ import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 
 import {
   type DiffFile,
-  type DiffViewMode,
+  type FileViewMode,
   type DiffSide,
   type CommentThread,
   type ExplainStatusResponse,
   type LineNumber,
 } from '../../types/diff';
+import { DEFAULT_FILE_VIEW_MODE } from '../../utils/diffMode';
 import { FileLevelTokensProvider } from '../contexts/FileLevelTokensContext';
 import { type CursorPosition } from '../hooks/keyboardNavigation';
 import { type MergedChunk } from '../hooks/useExpandedLines';
 import { useFileExplain } from '../hooks/useFileExplain';
 import { useFileLevelTokens } from '../hooks/useFileLevelTokens';
+import { useViewport } from '../hooks/useViewport';
 import { isWholeFileHighlightExtension } from '../utils/languageDetection';
 import { getViewerForFile } from '../viewers/registry';
 import type { DiffViewerBodyProps } from '../viewers/types';
@@ -20,22 +22,25 @@ import type { DiffViewerBodyProps } from '../viewers/types';
 import { DiffViewerHeader } from './DiffViewerHeader';
 import { ExplainButton } from './ExplainButton';
 import { ExplainPanel } from './ExplainPanel';
+import { FileViewModeTabs } from './FileViewModeTabs';
 import type { AppearanceSettings } from './SettingsModal';
 
 interface DiffViewerProps {
   file: DiffFile;
   threads: CommentThread[];
   showAuthorBadges?: boolean;
-  diffMode: DiffViewMode;
+  viewMode: FileViewMode;
+  onFileViewModeChange: (filePath: string, mode: FileViewMode) => void;
   reviewedFiles: Set<string>;
   isChangedSinceViewed?: boolean;
   onToggleReviewed: (path: string) => void;
   collapsedFiles: Set<string>;
   onToggleCollapsed: (path: string) => void;
   onToggleAllCollapsed: (shouldCollapse: boolean) => void;
-  allFiles?: DiffFile[];
   commitLabel?: string;
   explainStatus?: ExplainStatusResponse | null;
+  /** Comment-session query string backing whole-file explanation persistence. */
+  explainSessionQueryString?: string | null;
   onAddComment: (
     file: string,
     line: LineNumber,
@@ -185,16 +190,17 @@ export const DiffViewer = memo(function DiffViewer({
   file,
   threads,
   showAuthorBadges = false,
-  diffMode,
+  viewMode,
+  onFileViewModeChange,
   reviewedFiles,
   isChangedSinceViewed = false,
   onToggleReviewed,
   collapsedFiles,
   onToggleCollapsed,
   onToggleAllCollapsed,
-  allFiles,
   commitLabel,
   explainStatus,
+  explainSessionQueryString,
   onAddComment,
   onGenerateThreadPrompt,
   onRemoveThread,
@@ -220,14 +226,16 @@ export const DiffViewer = memo(function DiffViewer({
   const isCollapsed = collapsedFiles.has(file.path);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isVisible, setIsVisible] = useState(false);
+  const { isMobile } = useViewport();
 
   // The explanation state lives here (not in the header or panel) so that
   // collapsing the file keeps the loaded explanation around.
   const explain = useFileExplain({
     file,
-    allFiles: allFiles ?? [file],
     commitLabel,
+    targetCommitish,
     explainStatus,
+    sessionQueryString: explainSessionQueryString ?? null,
   });
 
   const viewer = getViewerForFile(file);
@@ -237,6 +245,31 @@ export const DiffViewer = memo(function DiffViewer({
   // highlighted by their own language instead of line-by-line, which can't see
   // the surrounding context.
   const wholeFileHighlight = viewer.id === 'default' && isWholeFileHighlightExtension(file.path);
+
+  // Per-file view modes: unified leads, full needs a new-file side, previews
+  // exist only for the markdown and notebook viewers.
+  const isPreviewCapable = viewer.id === 'markdown' || viewer.id === 'notebook';
+  const supportsFullMode = file.status !== 'deleted';
+  const viewModeOptions: FileViewMode[] = [
+    'unified',
+    'split',
+    ...(supportsFullMode ? (['full'] as const) : []),
+    ...(isPreviewCapable ? (['diff-preview', 'full-preview'] as const) : []),
+  ];
+  // Split and full are unreadable at mobile widths, so only the previews stay selectable there.
+  const selectableModes = isMobile
+    ? viewModeOptions.filter((mode) => mode === 'diff-preview' || mode === 'full-preview')
+    : viewModeOptions;
+  // Full view and the full preview fetch blobs, which stdin diffs cannot serve.
+  const disabledModes = new Set<FileViewMode>(hasBlobContent ? [] : ['full', 'full-preview']);
+  const isModeSelectable = selectableModes.includes(viewMode) && !disabledModes.has(viewMode);
+  const resolvedViewMode: FileViewMode = isModeSelectable ? viewMode : DEFAULT_FILE_VIEW_MODE;
+  const handleViewModeChange = useCallback(
+    (mode: FileViewMode) => {
+      onFileViewModeChange(file.path, mode);
+    },
+    [onFileViewModeChange, file.path],
+  );
 
   // Observe visibility for lazy prefetch
   useEffect(() => {
@@ -355,7 +388,8 @@ export const DiffViewer = memo(function DiffViewer({
     file,
     threads,
     showAuthorBadges,
-    diffMode,
+    viewMode: resolvedViewMode,
+    onViewModeChange: handleViewModeChange,
     syntaxTheme,
     baseCommitish,
     targetCommitish,
@@ -401,11 +435,25 @@ export const DiffViewer = memo(function DiffViewer({
         }
       />
 
+      {!isCollapsed && !file.isBinary && selectableModes.length > 0 && (
+        <div className="flex items-center border-b border-github-border px-4 py-1.5">
+          <FileViewModeTabs
+            viewMode={resolvedViewMode}
+            options={selectableModes}
+            disabledOptions={disabledModes}
+            onModeChange={handleViewModeChange}
+          />
+        </div>
+      )}
+
       {!isCollapsed && explain.isPanelOpen && (
         <ExplainPanel
           phase={explain.phase}
           explanation={explain.explanation}
           errorMessage={explain.errorMessage}
+          requestedFiles={explain.requestedFiles}
+          reaskDisabledReason={explain.reaskDisabledReason}
+          onReask={explain.reaskExplain}
           onRetry={explain.retryExplain}
         />
       )}

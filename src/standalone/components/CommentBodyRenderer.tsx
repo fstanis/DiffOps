@@ -13,6 +13,35 @@ import type { AppearanceSettings } from './SettingsModal';
 
 const COMMENT_REMARK_PLUGINS = [remarkGfm, remarkBreaks];
 
+interface HastNode {
+  type: string;
+  tagName?: string;
+  value?: string;
+  children?: HastNode[];
+}
+
+const isWhitespaceOnlyText = (node: HastNode): boolean =>
+  node.type === 'text' && node.value?.trim() === '';
+
+// react-markdown emits whitespace-only text nodes between a list item's block
+// children (between the item's text and a nested list); li renders with
+// whitespace-pre-wrap, so those structural separators would show as blank
+// lines. Dropping them mirrors normal white-space collapsing.
+const rehypeTightenListItems = () => (tree: HastNode) => {
+  const walk = (node: HastNode): void => {
+    for (const child of node.children ?? []) {
+      walk(child);
+    }
+    if (node.tagName === 'li' && node.children !== undefined) {
+      node.children = node.children.filter((child) => !isWhitespaceOnlyText(child));
+    }
+  };
+  walk(tree);
+  return tree;
+};
+
+const COMMENT_REHYPE_PLUGINS = [rehypeTightenListItems];
+
 const transformCommentUrl = (url: string) => (isSafeUrl(url) ? url : '');
 
 type SuggestionPart = {
@@ -286,6 +315,7 @@ export function CommentBodyRenderer({
             <div key={index}>
               <ReactMarkdown
                 remarkPlugins={COMMENT_REMARK_PLUGINS}
+                rehypePlugins={COMMENT_REHYPE_PLUGINS}
                 urlTransform={transformCommentUrl}
                 components={markdownComponents}
               >

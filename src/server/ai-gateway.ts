@@ -4,10 +4,10 @@
 import type { ExplainStatusResponse } from '../types/diff.js';
 
 import {
-  generateExplanation,
+  generateFileExplanation,
   isExplainConfigured,
   resolveExplainModel,
-  validateExplainPrompt,
+  validateExplainRequest,
 } from './explain.js';
 import { generateNarration, resolveNarrateModel, validateNarrateRequest } from './narrate.js';
 
@@ -38,12 +38,16 @@ const explainResponse = async (request: Request): Promise<Response> => {
 
   try {
     const body: unknown = await request.json().catch(() => null);
-    const validation = validateExplainPrompt((body as { prompt?: unknown } | null)?.prompt);
+    const validation = validateExplainRequest(body);
     if (!validation.ok) {
       return jsonResponse({ error: validation.error }, validation.status);
     }
 
-    const explanation = await generateExplanation(validation.prompt, resolveExplainModel());
+    const explanation = await generateFileExplanation(
+      validation.prompt,
+      validation.candidateFiles,
+      resolveExplainModel(),
+    );
     return jsonResponse({ explanation });
   } catch (error) {
     console.error('Error generating explanation:', error);

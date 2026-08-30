@@ -3,7 +3,7 @@ import { getDiffContentForHashing } from './diffUtils';
 
 // Deterministic per payload, not cryptographically strong; a narration is only
 // invalidated, never secured, by this hash.
-const hashString = (value: string): string => {
+export const hashString = (value: string): string => {
   let hash = 5381;
   for (let index = 0; index < value.length; index += 1) {
     hash = ((hash << 5) + hash + value.charCodeAt(index)) | 0;
