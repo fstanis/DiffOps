@@ -8,6 +8,12 @@ yarn-error.log*
 dist/
 build/
 *.tsbuildinfo
+# Compiled Tailwind output for the standalone app (scripts/build-pwa-css.mjs)
+src/standalone/styles/app.css
+# Dev artifacts of the git engine (scripts/build-pwa-worker.mjs); the vendored
+# sources live in src/standalone/gitEngine/vendor
+src/standalone/gitEngine/git-worker.js
+src/standalone/gitEngine/lg2_workerfs.wasm
 
 # Environment variables
 .env
@@ -41,6 +47,10 @@ coverage/
 # Temporary folders
 tmp/
 temp/
+
+# Playwright e2e artifacts
+test-results/
+playwright-report/
 
 # kiro
 .kiro

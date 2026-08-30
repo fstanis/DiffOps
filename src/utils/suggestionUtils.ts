@@ -23,7 +23,7 @@ export function parseSuggestionBlocks(body: string): SuggestionBlock[] {
 
   while ((match = regex.exec(body)) !== null) {
     blocks.push({
-      suggestedCode: match[1].replace(/\n$/, ''), // Remove trailing newline
+      suggestedCode: (match[1] ?? '').replace(/\n$/, ''), // Remove trailing newline
       startIndex: match.index,
       endIndex: match.index + match[0].length,
     });

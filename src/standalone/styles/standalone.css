@@ -1,0 +1,12 @@
+/*
+ * Tailwind entry for the standalone app. Compiled to app.css (gitignored) by
+ * scripts/build-pwa-css.mjs — Bun's bundler does not run PostCSS, so the CSS
+ * is precompiled and linked from index.html instead of imported from JS.
+ *
+ * source(none) disables Tailwind's automatic source discovery (which would
+ * scan the whole repo); only the app's own tree is scanned, via @source.
+ */
+@import "tailwindcss" source(none);
+@import "./theme.css";
+
+@source "../";

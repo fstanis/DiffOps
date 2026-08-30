@@ -10,6 +10,8 @@ export function normalizeDiffViewMode(mode?: string | null): DiffViewMode {
     case 'unified':
     case 'inline':
       return 'unified';
+    case 'current':
+      return 'current';
     default:
       return DEFAULT_DIFF_VIEW_MODE;
   }

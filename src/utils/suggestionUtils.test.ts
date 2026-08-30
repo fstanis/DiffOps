@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 
 import {
   hasSuggestionBlock,
@@ -47,7 +47,7 @@ const x = 42;
 More text`;
       const result = parseSuggestionBlocks(body);
       expect(result).toHaveLength(1);
-      expect(result[0].suggestedCode).toBe('const x = 42;');
+      expect(result[0]?.suggestedCode).toBe('const x = 42;');
     });
 
     it('should parse multiple suggestion blocks', () => {
@@ -61,8 +61,8 @@ const b = 2;
 \`\`\``;
       const result = parseSuggestionBlocks(body);
       expect(result).toHaveLength(2);
-      expect(result[0].suggestedCode).toBe('const a = 1;');
-      expect(result[1].suggestedCode).toBe('const b = 2;');
+      expect(result[0]?.suggestedCode).toBe('const a = 1;');
+      expect(result[1]?.suggestedCode).toBe('const b = 2;');
     });
 
     it('should return empty array for no suggestions', () => {
@@ -75,10 +75,13 @@ const b = 2;
       const body = `Text before\`\`\`suggestion
 code
 \`\`\`text after`;
-      const result = parseSuggestionBlocks(body);
-      expect(result).toHaveLength(1);
-      expect(result[0].startIndex).toBe(11); // Position of first backtick
-      expect(result[0].endIndex).toBeGreaterThan(result[0].startIndex);
+      const [block] = parseSuggestionBlocks(body);
+      expect(block).toBeDefined();
+      if (!block) {
+        return;
+      }
+      expect(block.startIndex).toBe(11); // Position of first backtick
+      expect(block.endIndex).toBeGreaterThan(block.startIndex);
     });
 
     it('should preserve multi-line suggested code', () => {
@@ -91,9 +94,9 @@ function example() {
 \`\`\``;
       const result = parseSuggestionBlocks(body);
       expect(result).toHaveLength(1);
-      expect(result[0].suggestedCode).toContain('function example()');
-      expect(result[0].suggestedCode).toContain('return {');
-      expect(result[0].suggestedCode).toContain('value: 42');
+      expect(result[0]?.suggestedCode).toContain('function example()');
+      expect(result[0]?.suggestedCode).toContain('return {');
+      expect(result[0]?.suggestedCode).toContain('value: 42');
     });
   });
 

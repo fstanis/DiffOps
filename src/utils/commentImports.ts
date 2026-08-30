@@ -397,7 +397,10 @@ function mergeThread(
       messagesMatch(message, incomingMessage),
     );
     if (matchIndex >= 0) {
-      mergedMessages[matchIndex] = pickNewerMessage(mergedMessages[matchIndex], incomingMessage);
+      const existingMessage = mergedMessages[matchIndex];
+      if (existingMessage) {
+        mergedMessages[matchIndex] = pickNewerMessage(existingMessage, incomingMessage);
+      }
       continue;
     }
 
@@ -439,7 +442,10 @@ export function mergeCommentThreads(
       continue;
     }
 
-    threads[existingIndex] = mergeThread(threads[existingIndex], incomingThread);
+    const existingThread = threads[existingIndex];
+    if (existingThread) {
+      threads[existingIndex] = mergeThread(existingThread, incomingThread);
+    }
   }
 
   return { threads, warnings: [] };

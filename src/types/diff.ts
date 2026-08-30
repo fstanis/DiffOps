@@ -6,6 +6,8 @@ export interface DiffFile {
   deletions: number;
   chunks: DiffChunk[];
   isGenerated?: boolean;
+  /** Git reported a binary difference ("Binary files … differ"); no chunks to render. */
+  isBinary?: boolean;
 }
 
 export interface DiffChunk {
@@ -24,7 +26,7 @@ export interface DiffLine {
   newLineNumber?: number;
 }
 
-export type DiffViewMode = 'split' | 'unified';
+export type DiffViewMode = 'split' | 'unified' | 'current';
 export type DiffSide = 'old' | 'new';
 export type DiffLineRange = number | { start: number; end: number };
 
@@ -51,7 +53,6 @@ export interface DiffResponse {
   files: DiffFile[];
   ignoreWhitespace?: boolean;
   isEmpty?: boolean;
-  openInEditorAvailable?: boolean;
   baseCommitish?: string;
   targetCommitish?: string;
   requestedBaseCommitish?: string;
@@ -68,6 +69,11 @@ export interface GeneratedStatusResponse {
   ref: string;
   isGenerated: boolean;
   source: 'path' | 'content';
+}
+
+export interface ExplainStatusResponse {
+  enabled: boolean;
+  model: string;
 }
 
 export type LineNumber = number | [number, number];

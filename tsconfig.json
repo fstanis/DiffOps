@@ -21,6 +21,5 @@
       "@/types/*": ["./src/types/*"]
     }
   },
-  "include": ["src/**/*", "dev/**/*"],
-  "references": [{ "path": "./tsconfig.cli.json" }]
+  "include": ["src/**/*", "e2e/**/*", "playwright.config.ts"]
 }

@@ -1,7 +1,12 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["typescript", "react", "import"],
-  "jsPlugins": [{ "name": "react-hooks-js", "specifier": "eslint-plugin-react-hooks" }],
+  "jsPlugins": [
+    {
+      "name": "react-hooks-js",
+      "specifier": "eslint-plugin-react-hooks"
+    }
+  ],
   "categories": {
     "correctness": "error",
     "suspicious": "off",
@@ -27,15 +32,19 @@
     "*.config.mjs",
     "*.config.ts",
     "vite.config.ts",
-    "vitest.config.ts",
-    "vitest.setup.ts",
-    "tailwind.config.ts"
+    "tailwind.config.ts",
+    "src/standalone/gitEngine/vendor/*.js"
   ],
   "rules": {
     "no-control-regex": "off",
     "no-await-in-loop": "off",
     "no-undef": "off",
-    "no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
+    "no-unused-vars": [
+      "error",
+      {
+        "argsIgnorePattern": "^_"
+      }
+    ],
     "react/react-in-jsx-scope": "off",
     "react/no-array-index-key": "off",
     "react/rules-of-hooks": "error",
@@ -53,7 +62,12 @@
     "typescript/no-unsafe-return": "error",
     "typescript/no-floating-promises": "error",
     "typescript/require-await": "error",
-    "typescript/no-misused-promises": ["error", { "checksVoidReturn": false }],
+    "typescript/no-misused-promises": [
+      "error",
+      {
+        "checksVoidReturn": false
+      }
+    ],
     "typescript/consistent-type-imports": [
       "error",
       {

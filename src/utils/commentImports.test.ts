@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import type { CommentImport, DiffCommentThread } from '../types/diff';
 
@@ -148,9 +148,6 @@ describe('commentImports', () => {
 
   describe('mergeCommentImports', () => {
     it('adds a new thread import', () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date('2024-02-01T00:00:00.000Z'));
-
       const result = mergeCommentImports(
         [],
         [
@@ -166,8 +163,6 @@ describe('commentImports', () => {
       expect(result.warnings).toEqual([]);
       expect(result.threads).toHaveLength(1);
       expect(result.threads[0]?.messages[0]?.body).toBe('Imported thread');
-
-      vi.useRealTimers();
     });
 
     it('skips a duplicate thread import with the same root message', () => {
