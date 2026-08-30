@@ -19,10 +19,7 @@ import {
 import type { CommentNavigationItem } from './keyboardNavigation/types';
 import { getStartPosition, findNextMatchingPosition } from './keyboardNavigation/navigationCore';
 
-/**
- * Keyboard navigation hook for diff viewer
- * Provides Gerrit-style keyboard shortcuts for navigating through diffs
- */
+/** Gerrit-style keyboard shortcuts for navigating diffs. */
 export function useKeyboardNavigation({
   files,
   comments,
@@ -40,8 +37,7 @@ export function useKeyboardNavigation({
   const [cursor, setCursor] = useState<CursorPosition | null>(null);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
 
-  // Remember the last cursor so navigation resumes from it after the cursor
-  // is cleared (e.g. by a mouse click) instead of restarting from the top
+  // Remembered so navigation resumes from here after the cursor is cleared (e.g. by a mouse click).
   const lastCursorRef = useRef<CursorPosition | null>(null);
   useEffect(() => {
     if (cursor) {
@@ -49,11 +45,9 @@ export function useKeyboardNavigation({
     }
   }, [cursor]);
 
-  // Create scroll function
   const scrollToElement = useMemo(() => createScrollToElement(), []);
 
-  // File-level jumps anchor the section start (the narration card in
-  // narrated view) so content above the first line is never cut off.
+  // File-level jumps anchor the section start so content above the first line is never cut off.
   const scrollToFilePosition = useCallback(
     (position: CursorPosition) => {
       if (onScrollToFile) {
@@ -68,7 +62,6 @@ export function useKeyboardNavigation({
     [onScrollToFile, files, scrollToElement, getViewMode],
   );
 
-  // Build comment index for efficient lookup
   const commentIndex = useMemo(() => {
     const index = new Map<string, CommentNavigationItem[]>();
     comments.forEach((thread) => {
@@ -82,13 +75,11 @@ export function useKeyboardNavigation({
     return index;
   }, [comments]);
 
-  // Create navigation filters
   const filters = useMemo(
     () => createNavigationFilters(files, commentIndex, getViewMode, reviewedFiles),
     [files, commentIndex, getViewMode, reviewedFiles],
   );
 
-  // Core navigation function - finds next/prev position matching filter
   const navigate = useCallback(
     (direction: NavigationDirection, filter: NavigationFilter): NavigationResult => {
       if (files.length === 0) {
@@ -101,7 +92,6 @@ export function useKeyboardNavigation({
     [cursor, files, getViewMode],
   );
 
-  // Create navigation commands
   const createNavigationCommand = useCallback(
     (filter: NavigationFilter) => {
       return (direction: NavigationDirection) => {
@@ -117,7 +107,6 @@ export function useKeyboardNavigation({
     [navigate, scrollToElement],
   );
 
-  // Navigation commands
   const navigateToLine = useMemo(
     () => createNavigationCommand(filters.line),
     [createNavigationCommand, filters.line],
@@ -128,7 +117,6 @@ export function useKeyboardNavigation({
     [createNavigationCommand, filters.chunk],
   );
 
-  // Navigation to files
   const navigateToFile = useCallback(
     (direction: NavigationDirection) => {
       const result = navigate(direction, filters.file);
@@ -140,43 +128,34 @@ export function useKeyboardNavigation({
     [navigate, filters.file, scrollToFilePosition],
   );
 
-  // Navigation to comments
   const navigateToComment = useMemo(
     () => createNavigationCommand(filters.comment),
     [createNavigationCommand, filters.comment],
   );
 
-  // Switch between left and right sides in split mode
   const switchSide = useCallback(
     (side: 'left' | 'right') => {
       if (!cursor || getViewMode(cursor.fileIndex) !== 'split') return;
 
-      // Create new cursor with the requested side
       let newCursor = { ...cursor, side };
 
-      // Special handling for delete/add pairs in split view
-      // These appear on the same visual line but are different line indices
+      // Delete/add pairs share a visual line in split view but have distinct line indices.
       const currentLine =
         files[cursor.fileIndex]?.chunks[cursor.chunkIndex]?.lines[cursor.lineIndex];
       if (currentLine) {
-        // If switching from right (add) to left (delete), check if previous line is a delete
         if (side === 'left' && currentLine.type === 'add' && cursor.lineIndex > 0) {
           const prevLine =
             files[cursor.fileIndex]?.chunks[cursor.chunkIndex]?.lines[cursor.lineIndex - 1];
           if (prevLine?.type === 'delete') {
-            // Move to the delete line that pairs with this add line
             newCursor = { ...newCursor, lineIndex: cursor.lineIndex - 1 };
             setCursor(newCursor);
             scrollToElement(getElementId(newCursor, getViewMode(newCursor.fileIndex)));
             return;
           }
-        }
-        // If switching from left (delete) to right (add), check if next line is an add
-        else if (side === 'right' && currentLine.type === 'delete') {
+        } else if (side === 'right' && currentLine.type === 'delete') {
           const nextLine =
             files[cursor.fileIndex]?.chunks[cursor.chunkIndex]?.lines[cursor.lineIndex + 1];
           if (nextLine?.type === 'add') {
-            // Move to the add line that pairs with this delete line
             newCursor = { ...newCursor, lineIndex: cursor.lineIndex + 1 };
             setCursor(newCursor);
             scrollToElement(getElementId(newCursor, getViewMode(newCursor.fileIndex)));
@@ -185,16 +164,12 @@ export function useKeyboardNavigation({
         }
       }
 
-      // Check if the new position has content
       if (!hasContentOnSide(newCursor, files)) {
-        // Find the nearest line with content on the target side
         const file = files[cursor.fileIndex];
         if (!file) return;
 
-        // First, try to find a line in the current chunk
         const currentChunk = file.chunks[cursor.chunkIndex];
         if (currentChunk) {
-          // Search forward from current position
           for (let i = cursor.lineIndex + 1; i < currentChunk.lines.length; i++) {
             const testPos = { ...newCursor, lineIndex: i };
             if (hasContentOnSide(testPos, files)) {
@@ -203,7 +178,6 @@ export function useKeyboardNavigation({
             }
           }
 
-          // If not found forward, search backward
           if (!hasContentOnSide(newCursor, files)) {
             for (let i = cursor.lineIndex - 1; i >= 0; i--) {
               const testPos = { ...newCursor, lineIndex: i };
@@ -215,9 +189,7 @@ export function useKeyboardNavigation({
           }
         }
 
-        // If still no content found in current chunk, search other chunks
         if (!hasContentOnSide(newCursor, files)) {
-          // Search forward chunks
           for (let chunkIdx = cursor.chunkIndex + 1; chunkIdx < file.chunks.length; chunkIdx++) {
             const chunk = file.chunks[chunkIdx];
             if (!chunk) continue;
@@ -235,7 +207,6 @@ export function useKeyboardNavigation({
             if (hasContentOnSide(newCursor, files)) break;
           }
 
-          // If still not found, search backward chunks
           if (!hasContentOnSide(newCursor, files)) {
             for (let chunkIdx = cursor.chunkIndex - 1; chunkIdx >= 0; chunkIdx--) {
               const chunk = file.chunks[chunkIdx];
@@ -257,16 +228,13 @@ export function useKeyboardNavigation({
         }
       }
 
-      // Update cursor and scroll
       setCursor(newCursor);
       scrollToElement(getElementId(newCursor, getViewMode(newCursor.fileIndex)));
     },
     [cursor, getViewMode, scrollToElement, files],
   );
 
-  // Move cursor to center of viewport
   const moveToCenterOfViewport = useCallback(() => {
-    // Get the scrollable container
     const scrollContainer = document.querySelector(
       NAVIGATION_SELECTORS.SCROLL_CONTAINER,
     ) as HTMLElement | null;
@@ -275,16 +243,13 @@ export function useKeyboardNavigation({
     const containerRect = scrollContainer.getBoundingClientRect();
     const centerY = containerRect.top + containerRect.height / 2;
 
-    // Find all diff line elements
     let closestDistance = Infinity;
     let closestPosition: CursorPosition | null = null;
 
-    // Iterate through all files and lines to find the one closest to center
     files.forEach((file, fileIndex) => {
       const fileViewMode = getViewMode(fileIndex);
       file.chunks.forEach((chunk, chunkIndex) => {
         chunk.lines.forEach((_, lineIndex) => {
-          // Check both sides in split mode
           const sides =
             fileViewMode === 'split' ? (['left', 'right'] as const) : (['right'] as const);
 
@@ -296,7 +261,6 @@ export function useKeyboardNavigation({
               side,
             };
 
-            // Skip positions without content in split mode
             if (fileViewMode === 'split' && !hasContentOnSide(position, files)) {
               continue;
             }
@@ -309,7 +273,6 @@ export function useKeyboardNavigation({
               const elementCenterY = rect.top + rect.height / 2;
               const distance = Math.abs(elementCenterY - centerY);
 
-              // Check if element is visible
               if (rect.top < containerRect.bottom && rect.bottom > containerRect.top) {
                 if (distance < closestDistance) {
                   closestDistance = distance;
@@ -322,21 +285,18 @@ export function useKeyboardNavigation({
       });
     });
 
-    // Set cursor to the closest position
     if (closestPosition) {
       setCursor(closestPosition);
-      // Don't scroll since we're moving to already visible content
+      // Don't scroll: the target is already visible.
     }
   }, [files, getViewMode, setCursor]);
 
-  // Set cursor position from external source (e.g., mouse click)
   const setCursorPosition = useCallback(
     (position: CursorPosition | null) => {
       if (!position) {
         setCursor(null);
         return;
       }
-      // Fix the side if necessary
       const fixedPosition = fixSide(position, files);
       setCursor(fixedPosition);
       scrollToElement(getElementId(fixedPosition, getViewMode(fixedPosition.fileIndex)));
@@ -344,26 +304,21 @@ export function useKeyboardNavigation({
     [files, getViewMode, scrollToElement],
   );
 
-  // Common options for all hotkeys
   const hotkeyOptions = {
     scopes: 'navigation',
     enableOnFormTags: false,
     preventDefault: true,
   };
 
-  // Line navigation
   useHotkeys('j, down', () => navigateToLine('next'), hotkeyOptions, [navigateToLine]);
   useHotkeys('k, up', () => navigateToLine('prev'), hotkeyOptions, [navigateToLine]);
 
-  // Chunk navigation
   useHotkeys('n', () => navigateToChunk('next'), hotkeyOptions, [navigateToChunk]);
   useHotkeys('p', () => navigateToChunk('prev'), hotkeyOptions, [navigateToChunk]);
 
-  // Comment navigation
   useHotkeys('shift+n', () => navigateToComment('next'), hotkeyOptions, [navigateToComment]);
   useHotkeys('shift+p', () => navigateToComment('prev'), hotkeyOptions, [navigateToComment]);
 
-  // File navigation
   useHotkeys(']', () => navigateToFile('next'), { ...hotkeyOptions, useKey: true }, [
     navigateToFile,
   ]);
@@ -371,7 +326,6 @@ export function useKeyboardNavigation({
     navigateToFile,
   ]);
 
-  // Jump to first/last file
   useHotkeys(
     '{',
     () => {
@@ -408,7 +362,6 @@ export function useKeyboardNavigation({
     [files, getViewMode, scrollToFilePosition],
   );
 
-  // Side switching (split mode only)
   useHotkeys(
     'h, left',
     () => switchSide('left'),
@@ -422,8 +375,7 @@ export function useKeyboardNavigation({
     [switchSide, cursor, getViewMode],
   );
 
-  // Move the cursor to the first unviewed file after the given index,
-  // wrapping around but never landing back on the starting file
+  // Wraps around but never lands back on the starting file.
   const focusNextUnviewedFile = useCallback(
     (afterIndex: number) => {
       const totalFiles = files.length;
@@ -450,10 +402,8 @@ export function useKeyboardNavigation({
     [files, reviewedFiles, getViewMode, scrollToFilePosition],
   );
 
-  // Update only the remembered navigation position, without showing the
-  // keyboard cursor. Used by mouse interactions (e.g. the Viewed button) so
-  // keyboard navigation resumes from that file while mouse-only usage never
-  // surfaces keyboard UI.
+  // Updates the remembered position without showing the cursor, so mouse-only
+  // interactions (e.g. the Viewed button) don't surface keyboard UI.
   const rememberFilePosition = useCallback(
     (fileIndex: number) => {
       const file = files[fileIndex];
@@ -472,8 +422,7 @@ export function useKeyboardNavigation({
     [files, getViewMode],
   );
 
-  // File review toggle - targets the cursor file, or the hovered file when
-  // there is no cursor (e.g. after a mouse click cleared it)
+  // Targets the cursor file, or the hovered file when there is no cursor.
   useHotkeys(
     'v',
     () => {
@@ -489,7 +438,6 @@ export function useKeyboardNavigation({
     [cursor, files, onToggleReviewed, getHoveredFileIndex],
   );
 
-  // Mark current file as viewed (collapse) and move to the next unviewed file
   useHotkeys(
     'shift+v',
     () => {
@@ -508,7 +456,6 @@ export function useKeyboardNavigation({
     [cursor, files, reviewedFiles, onToggleReviewed, getHoveredFileIndex, focusNextUnviewedFile],
   );
 
-  // Refresh
   useHotkeys(
     'shift+r',
     () => {
@@ -520,14 +467,11 @@ export function useKeyboardNavigation({
     [onRefresh],
   );
 
-  // Comment creation
   useHotkeys(
     'c',
     () => {
       if (cursor && onCreateComment) {
-        // Get the current line
         const line = files[cursor.fileIndex]?.chunks[cursor.chunkIndex]?.lines[cursor.lineIndex];
-        // Only create comment if not on a deleted line
         if (line && line.type !== 'delete') {
           onCreateComment();
         }
@@ -537,20 +481,16 @@ export function useKeyboardNavigation({
     [cursor, files, onCreateComment],
   );
 
-  // Help toggle
   useHotkeys('?', () => setIsHelpOpen(!isHelpOpen), { ...hotkeyOptions, useKey: true }, [
     isHelpOpen,
   ]);
 
-  // Move to center of viewport - only if no modifier keys are pressed
   useHotkeys(
     '.',
     (event) => {
-      // Don't execute if any modifier keys are pressed
       if (event.ctrlKey || event.altKey || event.shiftKey || event.metaKey) {
         return;
       }
-      // Execute for standalone '.' key and prevent other handlers
       moveToCenterOfViewport();
       event.preventDefault();
     },
@@ -558,7 +498,6 @@ export function useKeyboardNavigation({
     [moveToCenterOfViewport],
   );
 
-  // Copy all comments prompt - available in both navigation and comments-list scopes
   useHotkeys(
     'shift+c',
     () => {
@@ -570,7 +509,6 @@ export function useKeyboardNavigation({
     [onCopyAllComments],
   );
 
-  // Delete all comments - available in both navigation and comments-list scopes
   useHotkeys(
     'shift+d',
     () => {
@@ -582,7 +520,6 @@ export function useKeyboardNavigation({
     [onDeleteAllComments],
   );
 
-  // Show comments list
   useHotkeys(
     'shift+l',
     () => {

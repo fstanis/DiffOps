@@ -19,7 +19,6 @@ export const DEFAULT_AI_SETTINGS: AiSettings = {
 
 const AI_STORAGE_KEY = 'diffops-ai-settings';
 
-// Key for AI settings inside the persisted client settings object.
 const AI_SETTINGS_KEY = 'ai';
 
 const asNonEmptyString = (value: unknown, fallback: string): string =>
@@ -74,8 +73,7 @@ export function useAiSettings(): UseAiSettingsReturn {
     settingsRef.current = settings;
   }, [settings]);
 
-  // Hydrate from the persisted settings; seed them from localStorage when the
-  // stored object has no AI section yet.
+  // Hydrate from the persisted settings; seed them back from localStorage when the stored object has no AI section yet.
   useEffect(() => {
     let cancelled = false;
 

@@ -28,7 +28,6 @@ const modifiedFile: DiffFile = {
   ],
 };
 
-// The whole new file, including lines outside any hunk
 const wholeFileLines = ['line one', 'line two new', 'line three', 'line four'];
 
 const addedFile: DiffFile = {
@@ -137,11 +136,8 @@ describe('CurrentFileView', () => {
   it('exposes anchor IDs derived from the diff chunks for keyboard navigation', () => {
     renderView();
 
-    // Chunk line 0 is the normal line with newLineNumber 1
     expect(document.getElementById('file-0-chunk-0-line-0')).not.toBeNull();
-    // Chunk line 2 is the added line with newLineNumber 2
     expect(document.getElementById('file-0-chunk-0-line-2')).not.toBeNull();
-    // Chunk line 1 is the deleted line, which has no anchor in the new file
     expect(document.getElementById('file-0-chunk-0-line-1')).toBeNull();
   });
 

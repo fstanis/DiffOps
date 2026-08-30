@@ -53,8 +53,6 @@ export function DiffCodeLine({
     if (line.type === 'delete') {
       return oldSideTokens ? [oldSideTokens] : null;
     }
-    // Other lines use the new side, falling back to the old side when there is
-    // no new line number.
     const lineTokens =
       line.newLineNumber != null ? (getNewTokens?.(line.newLineNumber) ?? null) : oldSideTokens;
     return lineTokens ? [lineTokens] : null;

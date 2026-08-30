@@ -1,6 +1,5 @@
 import { type PrismTheme, themes } from 'prism-react-renderer';
 
-// Helper function to remove background colors from theme
 function removeBackgrounds(theme: PrismTheme) {
   return {
     ...theme,
@@ -18,7 +17,6 @@ function removeBackgrounds(theme: PrismTheme) {
 export function getSyntaxTheme(syntaxTheme: string) {
   let baseTheme;
 
-  // Map theme IDs to prism-react-renderer built-in themes
   switch (syntaxTheme) {
     case 'github':
       baseTheme = themes.github;
@@ -54,7 +52,7 @@ export function getSyntaxTheme(syntaxTheme: string) {
       baseTheme = themes.okaidia;
       break;
     default:
-      baseTheme = themes.vsDark; // Default to VS Dark
+      baseTheme = themes.vsDark;
   }
 
   return removeBackgrounds(baseTheme);

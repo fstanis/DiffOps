@@ -112,8 +112,7 @@ export function matchesAutoViewedPattern(filePath: string, pattern: string): boo
 
   const normalizedFilePath = normalizePath(filePath);
 
-  // Patterns without a path separator match against the basename, so `*.test.ts`
-  // works for files nested anywhere in the repository.
+  // Patterns without a path separator match the basename, so `*.test.ts` matches anywhere in the repo.
   if (!normalizedPattern.includes('/')) {
     const fileName = normalizedFilePath.split('/').pop() ?? normalizedFilePath;
     return matchesSegment(fileName, normalizedPattern);

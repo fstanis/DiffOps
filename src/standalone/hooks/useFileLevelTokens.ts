@@ -15,8 +15,7 @@ export interface FileLevelTokens {
 
 const EMPTY: FileLevelTokens = { getOldTokens: null, getNewTokens: null };
 
-// Whole-file tokenization is skipped for larger files so we don't pay the cost
-// of highlighting the entire blob; these fall back to per-line highlighting.
+// Whole-file tokenization is skipped above this size and falls back to per-line highlighting, to avoid the cost of highlighting the entire blob.
 const MAX_WHOLE_FILE_LINES = 2000;
 
 async function fetchBlobText(filePath: string, ref: string): Promise<string | null> {

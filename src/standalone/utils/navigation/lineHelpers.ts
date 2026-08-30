@@ -1,10 +1,6 @@
 import type { DiffFile } from '../../../types/diff';
 import type { CursorPosition } from '../../hooks/keyboardNavigation/types';
 
-/**
- * Gets the line type at a given position
- * Returns null if the position is invalid or has unsupported line type
- */
 function getLineType(
   position: CursorPosition,
   files: DiffFile[],
@@ -12,7 +8,6 @@ function getLineType(
   const line = files[position.fileIndex]?.chunks[position.chunkIndex]?.lines[position.lineIndex];
   if (!line) return null;
 
-  // Only return standard diff line types
   if (line.type === 'add' || line.type === 'delete' || line.type === 'normal') {
     return line.type;
   }
@@ -35,10 +30,7 @@ export function hasContentOnSide(position: CursorPosition, files: DiffFile[]): b
   return false;
 }
 
-/**
- * Adjusts the cursor side if the current position has no content
- * This ensures the cursor is always on a side with visible content
- */
+/** Adjusts the cursor side if the current position has no content. */
 export function fixSide(position: CursorPosition, files: DiffFile[]): CursorPosition {
   if (!hasContentOnSide(position, files)) {
     return { ...position, side: position.side === 'left' ? 'right' : 'left' };

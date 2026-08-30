@@ -1,8 +1,7 @@
 import { type DiffFile, type Narration } from '../../types/diff';
 import { getDiffContentForHashing } from './diffUtils';
 
-// Deterministic per payload, not cryptographically strong; a narration is only
-// invalidated, never secured, by this hash.
+// Deterministic per payload, not cryptographically strong — only invalidates a narration, never secures it.
 export const hashString = (value: string): string => {
   let hash = 5381;
   for (let index = 0; index < value.length; index += 1) {

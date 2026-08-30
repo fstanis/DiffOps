@@ -1,15 +1,7 @@
-/**
- * Utilities for safe DOM manipulation
- */
-
-// Use a Map to store stable IDs for files
 const fileIdMap = new Map<string, string>();
 let fileIdCounter = 0;
 
-/**
- * Get a stable, safe DOM ID for a file path
- * Uses an internal counter to ensure uniqueness without exposing file paths
- */
+/** Uses an internal counter to keep IDs unique without exposing file paths in the DOM. */
 export function getFileElementId(filePath: string): string {
   if (!fileIdMap.has(filePath)) {
     fileIdMap.set(filePath, `file-${++fileIdCounter}`);

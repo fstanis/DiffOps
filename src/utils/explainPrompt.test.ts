@@ -88,6 +88,17 @@ describe('buildWholeFileExplainPrompt', () => {
     expect(prompt).toContain('Skip trivial or self-explanatory symbols');
     expect(prompt).toContain('a colleague would');
   });
+
+  it('tells the model to prioritize the public API and mark visibility', () => {
+    const prompt = buildWholeFileExplainPrompt({
+      path: 'src/app.ts',
+      content: 'const x = 1;',
+      candidateFiles: [],
+    });
+
+    expect(prompt).toContain('isPublic');
+    expect(prompt).toContain('Focus on the public API');
+  });
 });
 
 describe('buildExplainReaskPrompt', () => {

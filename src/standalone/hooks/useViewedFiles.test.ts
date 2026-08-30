@@ -10,7 +10,6 @@ import {
 
 import { useViewedFiles } from './useViewedFiles';
 
-// Mock StorageService
 const mockGetViewedFiles = vi.fn((): ViewedFileRecord[] => []);
 const mockSaveViewedFiles = vi.fn();
 const mockGetViewedHashIndex = vi.fn(
@@ -47,13 +46,11 @@ vi.mock('../services/StorageService', () => ({
   },
 }));
 
-// Mock diffUtils
 vi.mock('../utils/diffUtils', () => ({
   generateDiffHash: vi.fn(async (content: string) => `hash-${content.slice(0, 10)}`),
   getDiffContentForHashing: vi.fn((file: DiffFile) => `${file.path}-${file.status}`),
 }));
 
-// Helper to create a mock DiffFile
 function createMockDiffFile(
   path: string,
   status: 'modified' | 'added' | 'deleted' | 'renamed' = 'modified',
@@ -214,12 +211,11 @@ describe('useViewedFiles', () => {
         expect(result.current.viewedFiles.size).toBe(2);
       });
 
-      // The saved records should include the existing one plus the new deleted file
+      // The saved records include the existing one plus the new deleted file, keeping its original hash.
       const saveCall = mockSaveViewedFiles.mock.calls[0];
       const savedRecords = saveCall?.[2] as ViewedFileRecord[];
       expect(savedRecords).toHaveLength(2);
 
-      // The existing record should keep its original hash
       const existingRecord = savedRecords?.find((r) => r.filePath === 'package-lock.json');
       expect(existingRecord?.diffContentHash).toBe('existing-hash');
     });
@@ -309,7 +305,6 @@ describe('useViewedFiles', () => {
       const entries = mockRecordViewedHashes.mock.calls[0]![1];
       expect(entries).toHaveLength(1);
       expect(entries[0]!.filePath).toBe('src/dir/b.ts');
-      // The already viewed file keeps its original record
       expect(result.current.getViewedFileRecord('src/dir/a.ts')?.diffContentHash).toBe(
         'existing-hash',
       );
@@ -405,9 +400,7 @@ describe('useViewedFiles', () => {
     });
 
     it('should return false when hash matches', async () => {
-      // Mock generates hash as: hash- + first 10 chars of content
-      // getDiffContentForHashing returns: src/app.ts-modified
-      // So hash = hash-src/app.ts (first 10 chars)
+      // Mock hash = "hash-" + first 10 chars of "src/app.ts-modified".
       const storedRecords: ViewedFileRecord[] = [
         {
           filePath: 'src/app.ts',
@@ -484,9 +477,7 @@ describe('useViewedFiles', () => {
   });
 
   describe('cross-comparison viewed-state carryover', () => {
-    // The mock generateDiffHash returns `hash-${path-status}.slice(0,10)`. For a
-    // file `src/foo.ts` with status `modified`, getDiffContentForHashing yields
-    // `src/foo.ts-modified` and the hash is `hash-src/foo.t`.
+    // Mirrors the mocked generateDiffHash: "hash-" + first 10 chars of `${path}-${status}`.
     const hashFor = (path: string, status: string) => {
       const content = `${path}-${status}`;
       return `hash-${content.slice(0, 10)}`;

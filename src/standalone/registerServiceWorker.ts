@@ -1,7 +1,6 @@
 /**
- * Offline shell caching for the standalone PWA: registers the cache-first
- * service worker (see service-worker.ts), which precaches the shell at install
- * so the app is fully local after the first visit.
+ * Registers the cache-first service worker (service-worker.ts), which
+ * precaches the shell so the app works fully offline after the first visit.
  */
 
 export const registerServiceWorker = async (): Promise<void> => {

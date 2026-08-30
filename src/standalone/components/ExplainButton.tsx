@@ -7,8 +7,6 @@ interface ExplainButtonProps {
   onClick: () => void;
 }
 
-// Small icon action for the file header toolbar; disabled states surface
-// their reason through the title tooltip.
 export const ExplainButton = ({
   disabledReason,
   isBusy,

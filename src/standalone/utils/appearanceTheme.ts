@@ -184,8 +184,7 @@ export function getResolvedTheme(
   );
 }
 
-// Color overrides for deuteranopia (red-green color blindness)
-// Uses blue for additions and orange for deletions instead of green/red
+// Deuteranopia overrides: blue for additions, orange for deletions instead of green/red
 const DEUTERANOPIA_DARK_OVERRIDES: Record<string, string> = {
   '--color-github-accent': '#58a6ff',
   '--color-github-danger': '#d29922',

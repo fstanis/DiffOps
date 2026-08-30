@@ -36,8 +36,7 @@ test('opening a .diff file renders the review without loading the git engine', a
   });
   await expect(page.getByTestId('binary-file-placeholder').first()).toBeVisible();
 
-  // Clicking the sidebar entry scrolls the lazily-rendered file into view —
-  // the rename keeps its label, hunks and line numbers render.
+  // Clicking the sidebar entry scrolls the lazily-rendered file into view.
   await page.locator('#file-tree-panel span[title="docs/handbook.md"]').click();
   await expect(page.getByRole('heading', { name: 'docs/handbook.md' })).toBeVisible();
   await expect(page.getByText('renamed from docs/guide.md')).toBeVisible();

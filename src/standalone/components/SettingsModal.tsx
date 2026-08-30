@@ -118,23 +118,18 @@ export function SettingsModal({
   const [activeSection, setActiveSection] = useState<SettingsSection>('appearance');
   const { enableScope, disableScope } = useHotkeysContext();
 
-  // Manage scopes when modal opens/closes
   useEffect(() => {
     if (isOpen) {
-      // Disable navigation scope when settings modal is open
       disableScope('navigation');
     } else {
-      // Re-enable navigation scope when modal closes
       enableScope('navigation');
     }
 
     return () => {
-      // Cleanup: ensure navigation scope is enabled
       enableScope('navigation');
     };
   }, [isOpen, enableScope, disableScope]);
 
-  // Get current theme (resolve 'auto' to actual theme)
   const getCurrentTheme = (): 'light' | 'dark' => {
     if (settings.theme === 'auto') {
       return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
@@ -142,16 +137,13 @@ export function SettingsModal({
     return settings.theme;
   };
 
-  // Get available themes based on current background color
   const getAvailableThemes = () => {
     return getThemesForResolvedTheme(getCurrentTheme());
   };
 
-  // Handle theme change and auto-select valid syntax theme
   const handleThemeChange = (theme: 'light' | 'dark' | 'auto') => {
     const newSettings = { ...settings, theme };
 
-    // Determine the effective theme
     const effectiveTheme =
       theme === 'auto'
         ? window.matchMedia('(prefers-color-scheme: dark)').matches
@@ -161,7 +153,6 @@ export function SettingsModal({
 
     const isCurrentThemeValid = isSyntaxThemeForResolvedTheme(settings.syntaxTheme, effectiveTheme);
 
-    // If current theme becomes invalid, auto-select first item
     if (!isCurrentThemeValid) {
       const firstTheme = getFallbackSyntaxTheme(effectiveTheme);
       if (firstTheme) {

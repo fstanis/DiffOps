@@ -54,8 +54,7 @@ export function RevisionSelector({
       offset(4),
       flip(),
       shift({ padding: 8 }),
-      // Cap the dropdown height to the space actually available so the sticky
-      // search box is never pushed out of the viewport.
+      // Cap dropdown height to available space so the sticky search box stays in the viewport.
       size({
         padding: 8,
         apply({ availableHeight, elements }) {
@@ -82,7 +81,6 @@ export function RevisionSelector({
     role,
   ]);
 
-  // Check if the current value is 'working' or 'staged' special case
   const isWorkingStagedMode =
     (value === 'working' && disabledValues.includes('staged')) ||
     (value === 'staged' && disabledValues.includes('working'));
@@ -90,17 +88,13 @@ export function RevisionSelector({
     (opt) => !RESERVED_SPECIAL_OPTION_VALUES.has(opt.value),
   );
 
-  // Get display text for current value
   const getDisplayText = () => {
-    // Check special options
     const special = visibleSpecialOptions.find((opt) => opt.value === value);
     if (special) return special.label;
 
-    // Check branches
     const branch = options.branches.find((b) => b.name === value);
     if (branch) return `${branch.name}${branch.current ? ' (current)' : ''}`;
 
-    // Check commits
     const commit = options.commits.find((c) => c.shortHash === value || c.hash === value);
     if (commit) return `${commit.shortHash} - ${commit.message}`;
 
@@ -135,7 +129,6 @@ export function RevisionSelector({
     filteredCommits.length === 0 &&
     filteredBranches.length === 0;
 
-  // Select the first enabled match when pressing Enter in the search box
   const handleSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== 'Enter') return;
     event.preventDefault();
@@ -149,7 +142,6 @@ export function RevisionSelector({
     }
   };
 
-  // Check if a value is disabled
   const isDisabled = (val: string) => {
     return disabledValues.includes(val);
   };
@@ -208,7 +200,6 @@ export function RevisionSelector({
               className="bg-github-bg-secondary border border-github-border rounded shadow-lg z-50 w-[360px] overflow-y-auto"
               {...getFloatingProps()}
             >
-              {/* Search box */}
               <div className="sticky top-0 z-10 border-b border-github-border bg-github-bg-secondary p-2">
                 <div className="flex items-center gap-2 rounded border border-github-border bg-github-bg-primary px-2 py-1.5 focus-within:border-blue-600">
                   <Search size={12} className="shrink-0 text-github-text-secondary" />
@@ -225,7 +216,6 @@ export function RevisionSelector({
                 </div>
               </div>
 
-              {/* Special Options */}
               {filteredSpecialOptions.length > 0 && (
                 <div className="border-b border-github-border">
                   <div className="px-3 py-2 text-xs font-semibold text-github-text-secondary bg-github-bg-tertiary">
@@ -244,7 +234,6 @@ export function RevisionSelector({
                 </div>
               )}
 
-              {/* Recent Commits - hide in working/staged mode */}
               {filteredCommits.length > 0 && (
                 <div className="border-b border-github-border">
                   <div className="px-3 py-2 text-xs font-semibold text-github-text-secondary bg-github-bg-tertiary">
@@ -273,7 +262,6 @@ export function RevisionSelector({
                 </div>
               )}
 
-              {/* Branches - hide in working/staged mode */}
               {filteredBranches.length > 0 && (
                 <div>
                   <div className="px-3 py-2 text-xs font-semibold text-github-text-secondary bg-github-bg-tertiary">
@@ -297,7 +285,6 @@ export function RevisionSelector({
                 </div>
               )}
 
-              {/* Empty state when the query matches nothing */}
               {hasNoMatches && (
                 <div className="px-3 py-4 text-center text-xs text-github-text-muted">
                   No matching branches or commits

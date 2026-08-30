@@ -10,14 +10,12 @@ import { buildFileExplanationFingerprint } from '../utils/explanationFingerprint
 
 import { DiffViewer } from './DiffViewer';
 
-// The gateway is the network boundary here; the hook's own fetches (blob
-// content, persistence) stay on the global fetch mock.
+// The gateway is the network boundary here; the hook's own fetches (blob content, persistence) stay on the global fetch mock.
 const generateFileExplanation =
   vi.fn<(request: FileExplanationRequest) => Promise<FileExplanation>>();
 vi.mock('../services/aiGateway', () => ({ generateFileExplanation }));
 
-// Each fixture gets its own path: the whole-file content cache is keyed by
-// path, so distinct paths keep tests from sharing fetched content.
+// Each fixture gets its own path: the whole-file content cache is keyed by path, so distinct paths keep tests from sharing fetched content.
 const makeModifiedFile = (path = 'src/example.ts'): DiffFile => ({
   path,
   status: 'modified',
@@ -165,9 +163,15 @@ const structuredExplanation = (overrides: Partial<FileExplanation> = {}): FileEx
       name: 'parseStream',
       type: 'function',
       summary: 'Turns samples into beats.',
+      isPublic: true,
       contract: { input: 'samples', output: 'beats' },
     },
-    { name: 'MAX_GAP_MS', type: 'constant', summary: 'Longest gap still one beat.' },
+    {
+      name: 'MAX_GAP_MS',
+      type: 'constant',
+      summary: 'Longest gap still one beat.',
+      isPublic: true,
+    },
   ],
   additionalFilesNeeded: [],
   ...overrides,
@@ -302,7 +306,6 @@ describe('DiffViewer explain feature', () => {
     expect(screen.getByText('The model would explain this file better with:')).toBeInTheDocument();
     expect(screen.getByText('src/helper.ts')).toBeInTheDocument();
 
-    // The re-ask unlocks once the requested files' content is loaded.
     const reaskButton = screen.getByRole('button', { name: REASK_BUTTON_NAME });
     await waitFor(() => {
       expect(reaskButton).toBeEnabled();
@@ -320,7 +323,6 @@ describe('DiffViewer explain feature', () => {
     expect(reaskRequest.prompt).toContain('### src/helper.ts');
     expect(reaskRequest.prompt).toContain('export const helper = 1;');
 
-    // The re-ask is the only round; the offer never comes back.
     expect(screen.queryByRole('button', { name: REASK_BUTTON_NAME })).not.toBeInTheDocument();
 
     const putCalls = getCalls('/api/explanation').filter(([, init]) => init?.method === 'PUT');
@@ -394,7 +396,6 @@ describe('DiffViewer explain feature', () => {
     });
     const signal = (explainRequests()[0] as FileExplanationRequest).signal as AbortSignal;
 
-    // Clicking Explain again collapses the panel and aborts the request
     fireEvent.click(screen.getByRole('button', { name: EXPLAIN_BUTTON_NAME }));
 
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
@@ -438,8 +439,7 @@ describe('DiffViewer explain feature', () => {
   });
 
   it('disables the button when the whole file exceeds the explain size limit', async () => {
-    // 25 lines of ~8.5 KB each — over the cap, but enough non-empty lines to
-    // pass the length gate.
+    // 25 lines of ~8.5 KB each — over the cap, but still enough non-empty lines to pass the length gate.
     const hugeContent = Array.from({ length: 25 }, () => 'x'.repeat(8500)).join('\n');
     mockExplainFetches({ blobs: { 'src/huge.ts': hugeContent } });
 
@@ -479,8 +479,7 @@ describe('DiffViewer explain feature', () => {
     });
 
     renderViewer(file, { explainSessionQueryString: 'base=main&target=feature' });
-    // Let the persisted explanation land before opening the panel, so the
-    // click observes the restored loaded state instead of racing it.
+    // Let the persisted explanation land before opening the panel, so the click observes the restored state instead of racing it.
     await waitFor(() => {
       expect(getCalls('/api/explanation')).toHaveLength(1);
     });
@@ -528,7 +527,6 @@ describe('DiffViewer explain feature', () => {
         <DiffViewer {...buildProps(file, { collapsedFiles: new Set([file.path]) })} />
       </WordHighlightProvider>,
     );
-    // File collapsed: the panel is hidden but the explanation is retained
     expect(screen.queryByText('Cached explanation.')).not.toBeInTheDocument();
 
     rerender(
@@ -536,7 +534,6 @@ describe('DiffViewer explain feature', () => {
         <DiffViewer {...buildProps(file)} />
       </WordHighlightProvider>,
     );
-    // Re-expanded: instantly visible again, without another model call
     expect(screen.getByText('Cached explanation.')).toBeInTheDocument();
     expect(explainRequests()).toHaveLength(1);
   });

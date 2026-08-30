@@ -1,6 +1,6 @@
 {
-  "name": "diffops — Diff Viewer",
-  "short_name": "diffops",
+  "name": "DiffOps",
+  "short_name": "DiffOps",
   "description": "Review unified diffs with a GitHub-style Files changed view — right in the browser.",
   "start_url": "./",
   "scope": "./",

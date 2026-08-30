@@ -1,6 +1,7 @@
 import type { DiffViewMode, FileViewMode } from '../types/diff.js';
 
 export const DEFAULT_DIFF_VIEW_MODE: DiffViewMode = 'unified';
+/** @alias */
 export const DEFAULT_FILE_VIEW_MODE: FileViewMode = DEFAULT_DIFF_VIEW_MODE;
 
 export function normalizeDiffViewMode(mode?: string | null): DiffViewMode {

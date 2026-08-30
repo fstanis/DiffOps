@@ -17,8 +17,6 @@ interface ExplainPanelProps {
   onRetry: () => void;
 }
 
-// Inline explanation area directly below the file header; the structured
-// explanation renders as markdown with the same renderer used for comments.
 export const ExplainPanel = ({
   phase,
   explanation,

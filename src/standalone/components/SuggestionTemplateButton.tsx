@@ -43,7 +43,6 @@ export function SuggestionTemplateButton({
 
     onChange(newBody);
 
-    // Place cursor after the inserted suggestion block
     const cursorPosition = before.length + insertion.length;
 
     requestAnimationFrame(() => {

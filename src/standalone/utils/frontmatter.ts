@@ -30,10 +30,8 @@ export function extractFrontmatter(text: string): {
 }
 
 /**
- * Returns the individual lines occupied by the leading YAML frontmatter block,
- * including the enclosing `---` delimiters. Returns an empty array when the text
- * has no frontmatter. Trailing carriage returns are stripped so the values can
- * be compared directly against diff line content.
+ * Includes the enclosing `---` delimiters; returns an empty array when there is no frontmatter.
+ * Trailing carriage returns are stripped so lines compare directly against diff line content.
  */
 export function getFrontmatterLines(text: string): string[] {
   const match = text.match(FRONTMATTER_PATTERN);

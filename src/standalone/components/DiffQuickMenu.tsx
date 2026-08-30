@@ -302,7 +302,6 @@ export function DiffQuickMenu({
   const branchSelection = (branchName: string) =>
     createDiffSelection(branchName, '.', 'merge-base');
 
-  // Select the first match when pressing Enter in the search box
   const handleSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== 'Enter' || !isFiltering) return;
     event.preventDefault();
@@ -386,7 +385,6 @@ export function DiffQuickMenu({
             className="bg-github-bg-secondary border border-github-border rounded shadow-lg z-50 w-[320px] max-h-[400px] overflow-y-auto"
             {...getFloatingProps()}
           >
-            {/* Search box */}
             <div className="sticky top-0 z-10 border-b border-github-border bg-github-bg-secondary p-2">
               <div className="flex items-center gap-2 rounded border border-github-border bg-github-bg-primary px-2 py-1.5 focus-within:border-blue-600">
                 <Search size={12} className="shrink-0 text-github-text-secondary" />

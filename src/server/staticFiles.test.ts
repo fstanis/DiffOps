@@ -13,7 +13,7 @@ const writeAsset = (relativePath: string, content: string): void => {
   writeFileSync(fullPath, content);
 };
 
-writeAsset('index.html', '<!doctype html><title>diffops</title>');
+writeAsset('index.html', '<!doctype html><title>DiffOps</title>');
 writeAsset('assets/app.js', 'console.log("app")');
 writeAsset('lg2_workerfs.wasm', 'wasm-bytes');
 writeAsset('icons/icon-192.png', 'png-bytes');
@@ -31,8 +31,7 @@ afterAll(() => {
   rmSync(assetRoot, { recursive: true, force: true });
 });
 
-// Bodies are Bun blobs, which happy-dom's Response cannot stringify, so byte
-// fidelity is verified live (curl against `bun run serve`) rather than here.
+// Bodies are Bun blobs, which happy-dom's Response cannot stringify, so byte fidelity is verified live (curl against `bun run serve`) rather than here.
 describe('static handler', () => {
   it('serves the shell for the root path', async () => {
     const response = await serveStaticFile(documentRequest('/'));
@@ -64,8 +63,7 @@ describe('static handler', () => {
   });
 
   it('rejects encoded path traversal with 403', async () => {
-    // new URL keeps %2F encoded in the pathname; the handler decodes it only
-    // after parsing, so the escape attempt reaches the containment guard.
+    // new URL keeps %2F encoded in the pathname; the handler decodes it only after parsing, so the escape attempt reaches the containment guard.
     const response = await serveStaticFile(assetRequest('/..%2F..%2Fsecret.txt'));
     expect(response.status).toBe(403);
   });

@@ -93,9 +93,9 @@ export function useExpandedLines({
   const [isLoading, setIsLoading] = useState(false);
   const [lastUpdatedFilePath, setLastUpdatedFilePath] = useState<string | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState(0);
-  // Track pending fetch promises to allow waiting for in-flight requests (#2)
+  // Track pending fetch promises to allow waiting for in-flight requests
   const pendingFetchesRef = useRef<Map<string, Promise<FileExpandedState | null>>>(new Map());
-  // Use ref to access current state without causing dependency loop (#2)
+  // Use ref to access current state without causing a dependency loop
   const expandedStateRef = useRef<ExpandedLinesState>({});
   expandedStateRef.current = expandedState;
   const revisionGenerationRef = useRef(0);
@@ -125,7 +125,6 @@ export function useExpandedLines({
         return pendingFetch;
       }
 
-      // Create the fetch promise
       const fetchPromise = (async (): Promise<FileExpandedState | null> => {
         // Read current state via ref to avoid dependency on expandedState
         const existingState = expandedStateRef.current[file.path];
@@ -139,7 +138,6 @@ export function useExpandedLines({
           expandedRanges: existingState?.expandedRanges || [],
         };
 
-        // Fetch old content for modified/deleted/renamed files
         if (file.status !== 'added' && baseCommitish) {
           const oldPath = file.oldPath || file.path;
           try {
@@ -156,7 +154,6 @@ export function useExpandedLines({
           }
         }
 
-        // Fetch new content for modified/added/renamed files
         if (file.status !== 'deleted' && targetCommitish) {
           try {
             const { lines, totalLines } = await fetchFileContent(file.path, targetCommitish);
@@ -206,13 +203,10 @@ export function useExpandedLines({
           return;
         }
 
-        // Use functional update to ensure we're working with the latest state
         setExpandedState((prev) => {
           const currentFileState = prev[file.path];
-          // Merge: fileState has content from fetch, currentFileState has latest expandedRanges
           const currentRanges = currentFileState?.expandedRanges || fileState.expandedRanges || [];
 
-          // Find existing range or create new one
           const existingRangeIndex = currentRanges.findIndex(
             (r) => r.chunkIndex === chunkIndex && r.direction === direction,
           );
@@ -220,7 +214,6 @@ export function useExpandedLines({
           const newRanges = [...currentRanges];
 
           if (existingRangeIndex >= 0 && newRanges[existingRangeIndex]) {
-            // Update existing range
             const existingRange = newRanges[existingRangeIndex];
             newRanges[existingRangeIndex] = {
               chunkIndex: existingRange.chunkIndex,
@@ -228,14 +221,12 @@ export function useExpandedLines({
               count: existingRange.count + count,
             };
           } else {
-            // Add new range
             newRanges.push({ chunkIndex, direction, count });
           }
 
           return {
             ...prev,
             [file.path]: {
-              // Use fileState for content (from fetch), preserve existing content if available
               oldContent: currentFileState?.oldContent ?? fileState.oldContent,
               newContent: currentFileState?.newContent ?? fileState.newContent,
               oldTotalLines: currentFileState?.oldTotalLines ?? fileState.oldTotalLines,
@@ -262,19 +253,13 @@ export function useExpandedLines({
           return;
         }
 
-        // Use functional update to ensure we're working with the latest state
         setExpandedState((prev) => {
           const currentFileState = prev[file.path];
-          // Merge: fileState has content from fetch, currentFileState has latest expandedRanges
           const currentRanges = currentFileState?.expandedRanges || fileState.expandedRanges || [];
 
           const newRanges = [...currentRanges];
 
-          // For the gap before chunkIndex, we need to consider BOTH:
-          // 1. 'up' direction from current chunk (user clicked "expand down" button in middle position)
-          // 2. 'down' direction from previous chunk (user clicked "expand up" button in middle position)
-          // This is because the UI buttons call different functions based on direction
-
+          // The gap before chunkIndex may be recorded as this chunk's 'up' range or as the previous chunk's 'down' range, since the two expand buttons call different functions depending on position.
           const existingUpIndex = newRanges.findIndex(
             (r) => r.chunkIndex === chunkIndex && r.direction === 'up',
           );
@@ -283,7 +268,6 @@ export function useExpandedLines({
             (r) => r.chunkIndex === chunkIndex - 1 && r.direction === 'down',
           );
 
-          // Calculate total already expanded from both directions
           let alreadyExpandedUp = 0;
           let alreadyExpandedDownPrev = 0;
 
@@ -294,17 +278,14 @@ export function useExpandedLines({
             alreadyExpandedDownPrev = newRanges[existingDownPrevIndex].count;
           }
 
-          // hiddenLines is the REMAINING hidden lines after subtracting existing expanded
-          // Total to expand = alreadyExpanded + remaining
+          // hiddenLines is the remaining count, not the total.
           const totalToExpand = alreadyExpandedUp + alreadyExpandedDownPrev + hiddenLines;
 
-          // Remove the 'down' range from previous chunk (if exists) to consolidate into 'up' direction
-          // We need to remove it first before updating 'up' to avoid index shifting issues
+          // The previous chunk's 'down' range must be removed before writing the consolidated 'up' range, or the index lookups below shift.
           const filteredRanges = newRanges.filter(
             (r) => !(r.chunkIndex === chunkIndex - 1 && r.direction === 'down'),
           );
 
-          // Now find or create the 'up' range
           const upIndexInFiltered = filteredRanges.findIndex(
             (r) => r.chunkIndex === chunkIndex && r.direction === 'up',
           );
@@ -322,7 +303,6 @@ export function useExpandedLines({
           return {
             ...prev,
             [file.path]: {
-              // Use fileState for content (from fetch), preserve existing content if available
               oldContent: currentFileState?.oldContent ?? fileState.oldContent,
               newContent: currentFileState?.newContent ?? fileState.newContent,
               oldTotalLines: currentFileState?.oldTotalLines ?? fileState.oldTotalLines,
@@ -347,7 +327,6 @@ export function useExpandedLines({
       }
 
       const revisionGeneration = revisionGenerationRef.current;
-      // Skip if we already have total lines info
       const existing = expandedStateRef.current[file.path];
       if (existing?.oldTotalLines !== undefined || existing?.newTotalLines !== undefined) {
         return;
@@ -416,18 +395,15 @@ export function useExpandedLines({
       let hiddenLines: number;
 
       if (!prevChunk) {
-        // First chunk - lines before it
         hiddenLines = chunk.oldStart - 1;
       } else {
-        // Gap between previous chunk and current chunk
         const prevEnd = prevChunk.oldStart + prevChunk.oldLines;
         hiddenLines = chunk.oldStart - prevEnd;
       }
 
-      // Subtract already expanded lines
-      // For "before" current chunk, we use "up" direction of current chunk
+      // The "up" direction covers already-expanded lines before this chunk.
       const expandedUp = getExpandedCount(file.path, chunkIndex, 'up');
-      // Also subtract "down" expansion from previous chunk
+      // The previous chunk's "down" direction also expands into this gap.
       const expandedDownPrev =
         chunkIndex > 0 ? getExpandedCount(file.path, chunkIndex - 1, 'down') : 0;
 
@@ -437,14 +413,9 @@ export function useExpandedLines({
   );
 
   /**
-   * Calculates the number of hidden lines after a chunk.
-   * @param file - The diff file
-   * @param chunk - The diff chunk
-   * @param chunkIndex - The index of the chunk in the file
-   * @returns The number of hidden lines after this chunk, or:
-   *   - `-1` if the total file lines are unknown (file content not yet fetched)
-   *   - `0` if this is not the last chunk (gaps are calculated by next chunk's hiddenLinesBefore)
-   *   - `>= 0` for the actual hidden line count if known
+   * @returns `-1` when the total file line count is not yet known, `0` when a
+   * later chunk's hiddenLinesBefore will compute this gap instead, otherwise
+   * the actual hidden line count.
    */
   const getHiddenLinesAfter = useCallback(
     (file: DiffFile, chunk: DiffChunk, chunkIndex: number): number => {
@@ -456,26 +427,22 @@ export function useExpandedLines({
       const fileState = expandedState[file.path];
       const totalLines = fileState?.oldTotalLines || fileState?.newTotalLines;
 
-      // If we don't know total lines yet, assume there might be more
       if (totalLines === undefined) {
         const nextChunk = file.chunks[chunkIndex + 1];
         if (!nextChunk) {
-          // Last chunk - we don't know if there are more lines
-          return -1; // Unknown - file content not yet fetched
+          return -1;
         }
-        return 0; // Will be calculated by getHiddenLinesBefore of next chunk
+        return 0;
       }
 
       const nextChunk = file.chunks[chunkIndex + 1];
       if (nextChunk) {
-        return 0; // Not the last chunk, no lines after
+        return 0;
       }
 
-      // Last chunk - lines after it
       const chunkEnd = chunk.oldStart + chunk.oldLines - 1;
       const hiddenLines = totalLines - chunkEnd;
 
-      // Subtract already expanded lines
       const expandedDown = getExpandedCount(file.path, chunkIndex, 'down');
 
       return Math.max(0, hiddenLines - expandedDown);
@@ -500,7 +467,6 @@ export function useExpandedLines({
 
       const newLines: DiffLine[] = [];
 
-      // Add expanded lines before (up direction)
       if (expandedUp > 0) {
         const prevChunk = file.chunks[chunkIndex - 1];
         let startOld: number;
@@ -515,7 +481,6 @@ export function useExpandedLines({
         const endOld = chunk.oldStart - 1;
         const endNew = chunk.newStart - 1;
 
-        // Get the actual lines to show (limited by expandedUp)
         const linesToShowOld = Math.min(expandedUp, endOld - startOld);
         const actualStartOld = endOld - linesToShowOld;
         const actualStartNew = endNew - linesToShowOld;
@@ -535,10 +500,8 @@ export function useExpandedLines({
         }
       }
 
-      // Add original chunk lines
       newLines.push(...chunk.lines);
 
-      // Add expanded lines after (down direction)
       if (expandedDown > 0) {
         const chunkEndOld = chunk.oldStart + chunk.oldLines - 1;
         const chunkEndNew = chunk.newStart + chunk.newLines - 1;
@@ -563,7 +526,6 @@ export function useExpandedLines({
         }
       }
 
-      // Update chunk metadata
       const firstLine = newLines[0];
       const lastLine = newLines[newLines.length - 1];
 
@@ -597,14 +559,11 @@ export function useExpandedLines({
         const hiddenBefore = getHiddenLinesBefore(file, chunk, i);
         const hiddenAfter = getHiddenLinesAfter(file, chunk, i);
 
-        // Check if we should merge with previous chunk
         const lastMerged = mergedChunks[mergedChunks.length - 1];
         if (lastMerged && hiddenBefore === 0) {
-          // Merge with previous chunk
           lastMerged.lines = [...lastMerged.lines, ...expandedChunk.lines];
           lastMerged.originalIndices.push(i);
           lastMerged.hiddenLinesAfter = hiddenAfter;
-          // Update chunk metadata
           const lastLine = lastMerged.lines[lastMerged.lines.length - 1];
           lastMerged.oldLines =
             (lastLine?.oldLineNumber ?? lastMerged.oldStart + lastMerged.oldLines - 1) -
@@ -615,7 +574,6 @@ export function useExpandedLines({
             lastMerged.newStart +
             1;
         } else {
-          // Create new merged chunk
           mergedChunks.push({
             ...expandedChunk,
             originalIndices: [i],

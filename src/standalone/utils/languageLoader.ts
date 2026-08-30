@@ -6,7 +6,6 @@ const loaded: Record<string, Promise<void>> = {};
  */
 export function loadPrismLanguage(lang: string): Promise<void> {
   if (!loaded[lang]) {
-    // Map specific languages to their import paths with dependencies
     const languageImports: Record<string, () => Promise<unknown>> = {
       bash: () => import('prismjs/components/prism-bash.js'),
       sh: () => import('prismjs/components/prism-bash.js'),
@@ -37,8 +36,7 @@ export function loadPrismLanguage(lang: string): Promise<void> {
       clojure: () => import('prismjs/components/prism-clojure.js'),
       gdscript: () => import('prismjs/components/prism-gdscript.js'),
       groovy: () => import('prismjs/components/prism-groovy.js'),
-      // Svelte grammar ships as a third-party plugin (not in prismjs core);
-      // it extends markup and embeds js/css, all available by default.
+      // Svelte grammar ships as a third-party plugin (not in prismjs core).
       svelte: () => import('prism-svelte'),
     };
 
@@ -49,7 +47,7 @@ export function loadPrismLanguage(lang: string): Promise<void> {
     }
 
     loaded[lang] = importFn()
-      .then(() => void 0) // we don't need the export
+      .then(() => void 0)
       .catch((err) => {
         delete loaded[lang]; // allow re-try
         console.warn(`Failed to load language: ${lang}`, err);

@@ -16,16 +16,16 @@ interface DiffLineRowProps {
   selectedLineStyle: string;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
-  onMouseMove: () => void;
   onCommentButtonMouseDown: (e: React.MouseEvent<HTMLButtonElement>) => void;
   syntaxTheme?: AppearanceSettings['syntaxTheme'];
   onClick?: (e: React.MouseEvent<HTMLTableRowElement>) => void;
   filename?: string;
   diffSegments?: DiffSegment[];
+  /** Index within the virtualizer; set only on virtualized rows, which the chunk measures by it. */
+  dataIndex?: number;
 }
 
 const getLineClass = (line: DiffLine | ExpandedLine) => {
-  // Expanded lines have a subtle different background
   if ('isExpanded' in line && line.isExpanded) {
     return 'bg-github-bg-tertiary/80';
   }
@@ -49,12 +49,12 @@ export const DiffLineRow: React.FC<DiffLineRowProps> = React.memo(
     selectedLineStyle,
     onMouseEnter,
     onMouseLeave,
-    onMouseMove,
     onCommentButtonMouseDown,
     syntaxTheme,
     onClick,
     filename,
     diffSegments,
+    dataIndex,
   }) => {
     const lineNumber = line.newLineNumber || line.oldLineNumber;
     const showLineActions = hoveredLineIndex === index && lineNumber;
@@ -65,10 +65,11 @@ export const DiffLineRow: React.FC<DiffLineRowProps> = React.memo(
       <tr
         id={lineId}
         data-diff-line-row="true"
+        data-index={dataIndex}
+        data-line-number={lineNumber || undefined}
         className={`group ${getLineClass(line)} relative ${selectedLineStyle} ${highlightClass} cursor-pointer`}
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
-        onMouseMove={onMouseMove}
         onClick={onClick}
       >
         <td className="w-[var(--line-number-width)] min-w-[var(--line-number-width)] max-w-[var(--line-number-width)] px-2 text-right text-github-text-muted bg-github-bg-secondary border-r border-github-border select-none align-top relative">

@@ -62,7 +62,6 @@ export const DiffViewerHeader = ({
         <button
           onClick={(e) => {
             if (e.altKey) {
-              // When Alt+clicking, collapse all if this file is expanded, expand all if collapsed
               onToggleAllCollapsed(!isCollapsed);
             } else {
               onToggleCollapsed(file.path);

@@ -10,21 +10,16 @@ interface HelpModalProps {
 export function HelpModal({ isOpen, onClose }: HelpModalProps) {
   const { enableScope, disableScope } = useHotkeysContext();
 
-  // Handle Escape key to close modal
   useHotkeys('escape', () => onClose(), { enabled: isOpen }, [onClose, isOpen]);
 
-  // Manage scopes when modal opens/closes
   useEffect(() => {
     if (isOpen) {
-      // Disable navigation scope when help modal is open
       disableScope('navigation');
     } else {
-      // Re-enable navigation scope when modal closes
       enableScope('navigation');
     }
 
     return () => {
-      // Cleanup: ensure navigation scope is enabled
       enableScope('navigation');
     };
   }, [isOpen, enableScope, disableScope]);

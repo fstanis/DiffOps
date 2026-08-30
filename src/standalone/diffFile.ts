@@ -16,7 +16,7 @@ async function hashContent(text: string): Promise<string> {
   return hex.slice(0, 16);
 }
 
-/** Reads and parses a unified diff file, throwing when it contains no diff content. */
+/** Throws when the file contains no diff content. */
 export async function readDiffFile(file: File): Promise<StandaloneDiffSource> {
   const text = await file.text();
   const files = parseUnifiedDiff(text);

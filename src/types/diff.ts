@@ -27,7 +27,7 @@ export interface DiffLine {
 }
 
 export type DiffViewMode = 'split' | 'unified' | 'full';
-export type FilePreviewMode = 'diff-preview' | 'full-preview';
+type FilePreviewMode = 'diff-preview' | 'full-preview';
 export type FileViewMode = DiffViewMode | FilePreviewMode;
 export type DiffSide = 'old' | 'new';
 export type DiffLineRange = number | { start: number; end: number };
@@ -86,20 +86,21 @@ export interface Narration {
 }
 
 /** What a callable symbol takes and produces, phrased by parameter name or in prose. */
-export interface FileExplanationContract {
+interface FileExplanationContract {
   input: string;
   output: string;
 }
 
 /** One entry of a whole-file outline; order is the suggested reading order. */
-export interface FileExplanationSymbol {
+interface FileExplanationSymbol {
   name: string;
   type: 'function' | 'method' | 'class' | 'constant' | 'other';
   summary: string;
+  /** Part of the file's public API (exported, reachable from other files) vs. private/internal. */
+  isPublic: boolean;
   contract?: FileExplanationContract;
 }
 
-/** A whole-file explanation: summary, outline, and the files the model still wants. */
 export interface FileExplanation {
   fileSummary: string;
   symbols: FileExplanationSymbol[];
@@ -116,8 +117,8 @@ export interface Comment {
   body: string;
   timestamp: string;
   author?: string;
-  codeContent?: string; // The actual code content for this line
-  side?: DiffSide; // Which side the comment is on
+  codeContent?: string;
+  side?: DiffSide;
 }
 
 export interface LineSelection {
@@ -146,7 +147,6 @@ export interface DiffCommentMessage {
   updatedAt: string;
 }
 
-// New data structures for enhanced comment and viewed state management
 export interface DiffCommentThread {
   id: string;
   filePath: string;
@@ -236,7 +236,6 @@ export interface CommentThread {
   messages: DiffCommentMessage[];
 }
 
-// Revision selector types
 interface RevisionOption {
   value: string;
   label: string;
@@ -262,7 +261,6 @@ export interface RevisionsResponse {
   resolvedTarget?: string;
 }
 
-// Expanded lines types for showing more context in diffs
 export interface ExpandedLinesState {
   [filePath: string]: FileExpandedState;
 }

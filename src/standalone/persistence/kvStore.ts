@@ -1,6 +1,4 @@
-// Minimal typed key-value wrapper over IndexedDB: the standalone app only
-// needs get/put/getAll/delete semantics, so this replaces a dependency like
-// idb.
+// Minimal key-value wrapper over IndexedDB in place of a dependency like idb.
 
 interface KVEntry<T> {
   key: string;
@@ -72,9 +70,7 @@ export interface OpenKvStoreOptions {
   version?: number;
 }
 
-// An upgrade waits for every other tab to release the old version; a tab that
-// never closes would wedge every store operation forever, so a stuck open
-// fails loudly instead and the next operation retries.
+// Without this timeout, a tab that never releases the old DB version would wedge every operation forever.
 const OPEN_BLOCKED_TIMEOUT_MS = 5_000;
 
 /** Opens (creating on first use) an IndexedDB database exposing the given stores as a KVStore. */
@@ -83,8 +79,7 @@ export const openIndexedDbKvStore = (
   storeNames: string[],
   options: OpenKvStoreOptions = {},
 ): KVStore => {
-  // Callers re-check availability on failure; keep a handle so a broken open
-  // doesn't spawn an unbounded number of connections.
+  // Cache the connection so a broken open doesn't spawn unbounded connections.
   let database: IDBDatabase | null = null;
   let opening: Promise<IDBDatabase> | null = null;
 
@@ -117,8 +112,7 @@ export const openIndexedDbKvStore = (
       const settleOpen = () => {
         clearTimeout(timeoutId);
         const db = request.result;
-        // Another tab wants to upgrade; releasing the connection promptly is
-        // what unblocks it, and the next operation here reopens transparently.
+        // Closing promptly unblocks the other tab's upgrade; the next operation here reopens transparently.
         db.onversionchange = () => {
           db.close();
           if (database === db) {

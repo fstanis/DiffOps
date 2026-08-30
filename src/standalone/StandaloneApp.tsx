@@ -120,8 +120,7 @@ function StandaloneApp({ createEngine }: StandaloneAppProps) {
     return bridgeRef.current;
   }, []);
 
-  // The engine module (and with it the git worker client) is loaded only when
-  // a repository is actually opened — a .diff-only session never pays for it.
+  // The engine module (and with it the git worker client) loads only when a repository is actually opened — a .diff-only session never pays for it.
   const ensureEngine = useCallback(async (): Promise<GitEngine> => {
     if (!engineRef.current) {
       const create = createEngine ?? (await import('./gitEngine/gitEngine')).createGitEngine;
@@ -164,8 +163,7 @@ function StandaloneApp({ createEngine }: StandaloneAppProps) {
         const next = await readDiffFile(file);
         ensureBridge().setDiff(next);
         setSource({ kind: 'diff', fileName: next.fileName });
-        // Fresh App instance per file so comment/viewed-file bootstrap
-        // re-runs against the new repositoryId.
+        // Fresh App instance per file so comment/viewed-file bootstrap re-runs against the new repositoryId.
         setSession((prev) => prev + 1);
         try {
           await getStandaloneStore().recordRecentDiff(file.name, next.repositoryId, file.size);
@@ -213,9 +211,7 @@ function StandaloneApp({ createEngine }: StandaloneAppProps) {
           openedAt: new Date().toISOString(),
           handle,
         };
-        // Recording is best-effort and must not hold the busy overlay: a wedged
-        // persistence layer (a blocked IndexedDB upgrade) must not keep the
-        // app "preparing" forever.
+        // Recording is best-effort and must not hold the busy overlay: a wedged persistence layer must not keep the app "preparing" forever.
         void getStandaloneStore()
           .saveLastRepo(entry)
           .then(() => {
@@ -369,8 +365,7 @@ function StandaloneApp({ createEngine }: StandaloneAppProps) {
         }
 
         const result = (await response.json()) as { warnings?: string[] };
-        // The bridge broadcasts commentsChanged so the viewer refetches;
-        // surfaced warnings are informational, not failures.
+        // The bridge broadcasts commentsChanged so the viewer refetches; surfaced warnings are informational, not failures.
         if (result.warnings && result.warnings.length > 0) {
           setErrorMessage(result.warnings.join(' '));
         }
@@ -538,8 +533,7 @@ function StandaloneApp({ createEngine }: StandaloneAppProps) {
     </button>
   ) : null;
 
-  // While a repository is open the same picker flow switches folders, so the
-  // button says so; on the landing screen it opens the first one.
+  // While a repository is open the same picker flow switches folders, so the button says so; on the landing screen it opens the first one.
   const isRepoOpen = source?.kind === 'repo';
   const openRepositoryButton = (
     <button

@@ -23,25 +23,20 @@ export function ImageDiffViewer({
   const isAdded = file.status === 'added';
   const isModified = file.status === 'modified' || file.status === 'renamed';
 
-  // Determine the actual refs to use
   const baseRef = baseCommitish || 'HEAD~1';
   const targetRef = targetCommitish || 'HEAD';
 
-  // State for image information
   const [oldImageInfo, setOldImageInfo] = useState<ImageInfo>({});
   const [newImageInfo, setNewImageInfo] = useState<ImageInfo>({});
 
-  // Function to handle image load and get dimensions/file size
   const handleImageLoad = async (
     img: HTMLImageElement,
     setImageInfo: (info: ImageInfo) => void,
   ) => {
     try {
-      // Get image dimensions
       const width = img.naturalWidth;
       const height = img.naturalHeight;
 
-      // Fetch the image to get file size
       const response = await fetch(img.src);
       const blob = await response.blob();
       const size = blob.size;
@@ -52,7 +47,6 @@ export function ImageDiffViewer({
     }
   };
 
-  // Function to format file size
   const formatFileSize = (bytes?: number): string => {
     if (!bytes) return '';
     if (bytes < 1024) return `${bytes} B`;
@@ -60,13 +54,11 @@ export function ImageDiffViewer({
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  // Function to format image dimensions
   const formatDimensions = (info: ImageInfo): string => {
     if (!info.width || !info.height) return '';
     return `W: ${info.width}px | H: ${info.height}px`;
   };
 
-  // Checkerboard background style for transparent images
   const checkerboardStyle = {
     backgroundImage: `
       linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%),
@@ -77,7 +69,6 @@ export function ImageDiffViewer({
     backgroundColor: 'white',
   };
 
-  // For deleted files, show only the old version
   if (isDeleted) {
     return (
       <div className="bg-github-bg-primary p-4">
@@ -117,7 +108,6 @@ export function ImageDiffViewer({
     );
   }
 
-  // For added files, show only the new version
   if (isAdded) {
     return (
       <div className="bg-github-bg-primary p-4">
@@ -157,9 +147,7 @@ export function ImageDiffViewer({
     );
   }
 
-  // For modified/renamed files, show both versions
   if (isModified) {
-    // Full mode shows only the new version of the image
     if (mode === 'full') {
       return (
         <div className="bg-github-bg-primary p-4">
@@ -206,7 +194,6 @@ export function ImageDiffViewer({
             <span className="text-github-text-primary font-medium">Modified Image</span>
           </div>
           <div className="grid grid-cols-2 gap-4">
-            {/* Old version */}
             <div className="text-center">
               <div className="border border-github-border rounded-md p-4 bg-github-bg-secondary">
                 <div className="text-github-text-muted mb-2" style={{ fontSize: '14px' }}>
@@ -237,7 +224,6 @@ export function ImageDiffViewer({
               </div>
             </div>
 
-            {/* New version */}
             <div className="text-center">
               <div className="border border-github-border rounded-md p-4 bg-github-bg-secondary">
                 <div className="text-github-text-muted mb-2" style={{ fontSize: '14px' }}>
@@ -271,14 +257,12 @@ export function ImageDiffViewer({
         </div>
       );
     } else {
-      // Unified mode: stack vertically
       return (
         <div className="bg-github-bg-primary p-4">
           <div className="text-center mb-4">
             <span className="text-github-text-primary font-medium">Modified Image</span>
           </div>
           <div className="space-y-6">
-            {/* Old version */}
             <div className="text-center">
               <div className="border border-github-border rounded-md p-4 bg-github-bg-secondary inline-block">
                 <div className="text-github-text-muted mb-2" style={{ fontSize: '14px' }}>
@@ -309,7 +293,6 @@ export function ImageDiffViewer({
               </div>
             </div>
 
-            {/* New version */}
             <div className="text-center">
               <div className="border border-github-border rounded-md p-4 bg-github-bg-secondary inline-block">
                 <div className="text-github-text-muted mb-2" style={{ fontSize: '14px' }}>

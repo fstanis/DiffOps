@@ -487,9 +487,7 @@ export function mergeCommentImports(
   existingThreads: DiffCommentThread[],
   commentImports: CommentImport[],
 ): MergeCommentImportsResult {
-  // Clone (don't shallow-copy) so appending a reply doesn't mutate the caller's
-  // thread objects in place — otherwise the server can't detect the change and
-  // skips the commentsChanged broadcast, leaving open browsers stale.
+  // Clone (not shallow-copy) so appending a reply doesn't mutate the caller's thread objects — otherwise the server misses the change and skips the commentsChanged broadcast.
   const threads = existingThreads.map(cloneThread);
   const warnings: string[] = [];
 

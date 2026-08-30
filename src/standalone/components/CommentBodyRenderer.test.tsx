@@ -142,9 +142,8 @@ describe('CommentBodyRenderer', () => {
   });
 
   it('renders no blank spacer lines in lists with nested lists', () => {
-    // list items render with whitespace-pre-wrap and white-space inherits, so
-    // any whitespace-only text node react-markdown leaves between list
-    // siblings — at the outer or the nested level — would show as a blank line.
+    // whitespace-pre-wrap + inherited white-space means whitespace-only text nodes
+    // between list siblings would otherwise render as blank lines.
     const { container } = render(
       <CommentBodyRenderer
         body={

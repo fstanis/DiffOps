@@ -110,8 +110,7 @@ const parseThreadsPayload = (init: RequestInit | undefined): unknown => {
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
-// Stable content hash for import ids; the value only needs to be deterministic
-// per payload, not cryptographically strong.
+// Deterministic per-payload hash for import ids; doesn't need to be cryptographically strong.
 const hashPayload = (payload: string): string => {
   let hash = 5381;
   for (let index = 0; index < payload.length; index += 1) {
@@ -136,8 +135,7 @@ export const installLocalApiBridge = (options: LocalApiBridgeOptions = {}): Loca
   let lastCommentQuery: string | null = null;
   const sessions = new Map<string, CommentSessionState>();
 
-  // Signals the viewer that the active source has no repository behind it,
-  // disabling affordances that need blob or repository endpoints.
+  // Tells the viewer the active source has no repository, disabling affordances that need blob or repository endpoints.
   const setDiffFileMode = (isDiffFileMode: boolean): void => {
     diffFileModeWindow.__DIFFOPS_DIFF_FILE_MODE__ = isDiffFileMode;
   };
@@ -254,8 +252,7 @@ export const installLocalApiBridge = (options: LocalApiBridgeOptions = {}): Loca
     const session = await loadSession(key);
     const nextThreads = payload.threads as DiffCommentThread[];
     const baseVersion = payload.baseVersion;
-    // A stale baseVersion means another writer changed comments; merge rather
-    // than overwrite (server parity).
+    // A stale baseVersion means another writer changed comments; merge rather than overwrite (server parity).
     const isStale = typeof baseVersion === 'number' && baseVersion !== session.version;
     const resolvedThreads = isStale
       ? mergeCommentThreads(session.threads, nextThreads).threads
@@ -282,8 +279,7 @@ export const installLocalApiBridge = (options: LocalApiBridgeOptions = {}): Loca
     });
   };
 
-  // Accepts the CLI's CommentImport[] payload (server parity) and the app's
-  // own { threads } export, so an export round-trips into a fresh session.
+  // Accepts the CLI's CommentImport[] payload (server parity) and the app's own { threads } export, so an export round-trips into a fresh session.
   const handleCommentImportsPost = async (
     init: RequestInit | undefined,
     key: string,

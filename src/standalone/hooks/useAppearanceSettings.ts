@@ -22,7 +22,6 @@ const DEFAULT_SETTINGS: AppearanceSettings = {
   autoViewedPatterns: [],
 };
 
-// Key for appearance settings inside the server-persisted client settings object.
 const APPEARANCE_SETTINGS_KEY = 'appearance';
 
 const normalizeStoredSettings = (raw: unknown): AppearanceSettings | null => {
@@ -67,8 +66,7 @@ export function useAppearanceSettings(): UseAppearanceSettingsReturn {
     settingsRef.current = settings;
   }, [settings]);
 
-  // Hydrate from the server-persisted settings (shared across ports); if the
-  // server has none yet but localStorage does, seed the server from it.
+  // Hydrate from the server-persisted settings (shared across ports); seed the server from localStorage if it has none yet.
   useEffect(() => {
     let cancelled = false;
 
@@ -139,17 +137,13 @@ export function useAppearanceSettings(): UseAppearanceSettingsReturn {
     [],
   );
 
-  // Apply settings to document
   useEffect(() => {
     const root = document.documentElement;
 
-    // Apply font size
     root.style.setProperty('--app-font-size', `${settings.fontSize}px`);
 
-    // Apply font family
     root.style.setProperty('--app-font-family', settings.fontFamily);
 
-    // Apply theme
     const colorVision = settings.colorVision ?? 'normal';
     const applyResolvedAppearance = (resolvedTheme: ResolvedTheme) => {
       applyTheme(resolvedTheme, colorVision);

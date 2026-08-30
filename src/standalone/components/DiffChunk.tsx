@@ -10,7 +10,9 @@ import {
   type LineSelection,
 } from '../../types/diff';
 import { DEFAULT_DIFF_VIEW_MODE } from '../../utils/diffMode';
+import { registerChunkRowVirtualizer } from '../hooks/diffRowVirtualizerRegistry';
 import { type CursorPosition } from '../hooks/keyboardNavigation';
+import { useDiffRowVirtualizer } from '../hooks/useDiffRowVirtualizer';
 import {
   computeWordLevelDiff,
   shouldComputeWordDiff,
@@ -92,7 +94,6 @@ export const DiffChunk = memo(function DiffChunk({
   } | null>(null);
   const [hoveredLine, setHoveredLine] = useState<number | null>(null);
 
-  // Handle comment trigger from keyboard navigation
   useEffect(() => {
     if (commentTrigger?.lineIndex !== undefined) {
       const line = chunk.lines[commentTrigger.lineIndex];
@@ -183,16 +184,14 @@ export const DiffChunk = memo(function DiffChunk({
     onLineClick?.(fileIndex, chunkIndex, lineIndex, navigationSide);
   };
 
-  // Global mouse up handler for drag selection: commit the selection wherever
-  // the mouse is released, not only on the comment button itself
+  // Global mouseup handler: commits the selection wherever the mouse is released, not only on the comment button.
   useEffect(() => {
     if (!isDragging) {
       return undefined;
     }
 
     const handleGlobalMouseUp = () => {
-      // Defer so the click event fired after mouseup doesn't immediately
-      // close the newly opened (still empty) comment form
+      // Defer so the click that follows mouseup doesn't immediately close the newly opened comment form.
       setTimeout(() => {
         if (startLine && dragSide) {
           const actualEndLine = endLine ?? startLine;
@@ -217,11 +216,34 @@ export const DiffChunk = memo(function DiffChunk({
     };
   }, [isDragging, startLine, endLine, dragSide, handleAddComment]);
 
+  // Single document-level listener while dragging, rather than one on every row.
+  useEffect(() => {
+    if (!isDragging) {
+      return undefined;
+    }
+
+    const handleGlobalMouseMove = (e: MouseEvent) => {
+      if (!startLine) return;
+      const target = document.elementFromPoint(e.clientX, e.clientY);
+      const row = target instanceof Element ? target.closest('[data-diff-line-row]') : null;
+      const lineNumberAttr = row?.getAttribute('data-line-number');
+      if (!lineNumberAttr) return;
+      const lineNumber = Number(lineNumberAttr);
+      if (Number.isFinite(lineNumber)) {
+        setEndLine(lineNumber);
+      }
+    };
+
+    document.addEventListener('mousemove', handleGlobalMouseMove);
+    return () => {
+      document.removeEventListener('mousemove', handleGlobalMouseMove);
+    };
+  }, [isDragging, startLine]);
+
   const handleCancelComment = useCallback(() => {
     setCommentingLine(null);
   }, []);
 
-  // Get the code content for the selected lines (for suggestion feature)
   const getSelectedCodeContent = useCallback((): string => {
     if (!commentingLine) return '';
 
@@ -229,13 +251,11 @@ export const DiffChunk = memo(function DiffChunk({
     const lines = chunk.lines;
 
     if (typeof lineNumber === 'number') {
-      // Single line
       const line = lines.find((l) =>
         side === 'old' ? l.oldLineNumber === lineNumber : l.newLineNumber === lineNumber,
       );
       return line?.content ?? '';
     } else {
-      // Range of lines
       const [start, end] = lineNumber;
       const selectedLines = lines.filter((l) => {
         const ln = side === 'old' ? l.oldLineNumber : l.newLineNumber;
@@ -269,7 +289,6 @@ export const DiffChunk = memo(function DiffChunk({
   };
 
   const getCommentLayout = (line: DiffLine): 'left' | 'right' | 'full' => {
-    // In unified mode, always use full width for comments
     if (mode === 'unified' || mode === 'full') {
       return 'full';
     }
@@ -289,17 +308,14 @@ export const DiffChunk = memo(function DiffChunk({
       return '';
     }
 
-    // Show selection during drag
     if (isDragging && startLine && endLine) {
       const min = Math.min(startLine, endLine);
       const max = Math.max(startLine, endLine);
       if (lineNumber >= min && lineNumber <= max) {
         let classes = 'drag-selected';
-        // Add top border for first line
         if (lineNumber === min) {
           classes += ' drag-selected-first';
         }
-        // Add bottom border for last line
         if (lineNumber === max) {
           classes += ' drag-selected-last';
         }
@@ -307,7 +323,6 @@ export const DiffChunk = memo(function DiffChunk({
       }
     }
 
-    // Show selection for existing comment
     if (commentingLine && commentingLine.side === side) {
       const start = Array.isArray(commentingLine.lineNumber)
         ? commentingLine.lineNumber[0]
@@ -323,8 +338,6 @@ export const DiffChunk = memo(function DiffChunk({
     return '';
   };
 
-  // Compute word-level diff for unified mode
-  // Maps line index to diff segments for that line
   const wordLevelDiffMap = useMemo(() => {
     const map = new Map<number, DiffSegment[]>();
     const lines = chunk.lines;
@@ -338,7 +351,6 @@ export const DiffChunk = memo(function DiffChunk({
       }
 
       if (line.type === 'delete') {
-        // Look ahead for corresponding add lines
         let j = i + 1;
         while (j < lines.length && lines[j]?.type === 'delete') {
           j++;
@@ -356,7 +368,6 @@ export const DiffChunk = memo(function DiffChunk({
           j++;
         }
 
-        // Pair delete and add lines and compute word-level diff
         const maxLines = Math.max(deleteLines.length, addLines.length);
         for (let k = 0; k < maxLines; k++) {
           const deleteLine = deleteLines[k];
@@ -383,7 +394,146 @@ export const DiffChunk = memo(function DiffChunk({
     return map;
   }, [chunk.lines]);
 
-  // Use side-by-side component for split mode
+  const rowCount = mode === 'split' ? 0 : chunk.lines.length;
+  const { wrapperRef, isVirtualized, scrollRowIntoView, virtualItems, paddingTop, paddingBottom } =
+    useDiffRowVirtualizer(rowCount);
+
+  useEffect(() => {
+    if (mode === 'split' || !isVirtualized) return undefined;
+
+    registerChunkRowVirtualizer(fileIndex, chunkIndex, (originalLineIndex) => {
+      if (originalLineIndex < 0 || originalLineIndex >= chunk.lines.length) return false;
+      return scrollRowIntoView(originalLineIndex);
+    });
+    return () => registerChunkRowVirtualizer(fileIndex, chunkIndex, null);
+  }, [mode, isVirtualized, fileIndex, chunkIndex, chunk.lines.length, scrollRowIntoView]);
+
+  const renderLineGroup = (line: DiffLine, index: number, isVirtualRow = false) => {
+    const currentLineNumber = line.newLineNumber || line.oldLineNumber || 0;
+    const currentLineSide: DiffSide = line.type === 'delete' ? 'old' : 'new';
+    const formTargetLineNumber = commentingLine
+      ? Array.isArray(commentingLine.lineNumber)
+        ? commentingLine.lineNumber[1]
+        : commentingLine.lineNumber
+      : null;
+
+    const commentLineNumber = line.type === 'delete' ? line.oldLineNumber : line.newLineNumber;
+    const commentSide: DiffSide = line.type === 'delete' ? 'old' : 'new';
+    const lineThreads = commentLineNumber ? getThreadsForLine(commentLineNumber, commentSide) : [];
+    // Generate ID for all lines to match the format used in useKeyboardNavigation
+    const lineId = `file-${fileIndex}-chunk-${chunkIndex}-line-${index}`;
+    const isCurrentLine = cursor && cursor.chunkIndex === chunkIndex && cursor.lineIndex === index;
+    const selection = commentLineNumber
+      ? { side: commentSide, lineNumber: commentLineNumber }
+      : null;
+
+    return (
+      <React.Fragment key={index}>
+        <DiffLineRow
+          line={line}
+          index={index}
+          lineId={lineId}
+          dataIndex={isVirtualRow ? index : undefined}
+          isCurrentLine={isCurrentLine || false}
+          hoveredLineIndex={hoveredLine}
+          selectedLineStyle={getSelectedLineStyle(
+            line.newLineNumber || line.oldLineNumber,
+            line.type === 'delete' ? 'old' : 'new',
+          )}
+          onMouseEnter={() => {
+            setHoveredLine(index);
+          }}
+          onMouseLeave={() => setHoveredLine(null)}
+          onCommentButtonMouseDown={(e) => {
+            e.stopPropagation();
+            if (e.shiftKey) {
+              e.preventDefault();
+            }
+            handleCommentButtonMouseDown({
+              isShiftClick: e.shiftKey,
+              selection,
+            });
+          }}
+          syntaxTheme={syntaxTheme}
+          filename={filename}
+          diffSegments={wordLevelDiffMap.get(index)}
+          onClick={(e) => {
+            const side = line.type === 'delete' ? 'left' : 'right';
+            if (e.shiftKey) {
+              e.preventDefault();
+            }
+            handleRowClick({
+              isShiftClick: e.shiftKey,
+              lineIndex: index,
+              navigationSide: side,
+              selection,
+            });
+          }}
+        />
+
+        {lineThreads.map((thread) => {
+          const layout = getCommentLayout(line);
+          return (
+            <tr key={thread.id} data-diff-extra-row="true" className="bg-github-bg-secondary">
+              <td colSpan={3} className="p-0 border-t border-github-border">
+                <div
+                  className={`flex ${
+                    layout === 'left'
+                      ? 'justify-start'
+                      : layout === 'right'
+                        ? 'justify-end'
+                        : 'justify-center'
+                  }`}
+                >
+                  <div className={`${layout === 'full' ? 'w-full' : 'w-1/2'} m-2 mx-4`}>
+                    <CommentThreadCard
+                      thread={thread}
+                      showAuthorBadges={showAuthorBadges}
+                      onGeneratePrompt={onGenerateThreadPrompt}
+                      onRemoveThread={onRemoveThread}
+                      onReplyToThread={onReplyToThread}
+                      onRemoveMessage={onRemoveMessage}
+                      onUpdateMessage={onUpdateMessage}
+                      syntaxTheme={syntaxTheme}
+                    />
+                  </div>
+                </div>
+              </td>
+            </tr>
+          );
+        })}
+
+        {commentingLine &&
+          commentingLine.side === currentLineSide &&
+          formTargetLineNumber === currentLineNumber && (
+            <tr data-diff-extra-row="true" className="bg-[var(--bg-secondary)]">
+              <td colSpan={3} className="p-0">
+                <div
+                  className={`flex ${
+                    getCommentLayout(line) === 'left'
+                      ? 'justify-start'
+                      : getCommentLayout(line) === 'right'
+                        ? 'justify-end'
+                        : 'justify-center'
+                  }`}
+                >
+                  <div className={`${getCommentLayout(line) === 'full' ? 'w-full' : 'w-1/2'}`}>
+                    <CommentForm
+                      onSubmit={handleSubmitComment}
+                      onCancel={handleCancelComment}
+                      selectedCode={getSelectedCodeContent()}
+                      syntaxTheme={syntaxTheme}
+                      filename={filename}
+                    />
+                  </div>
+                </div>
+              </td>
+            </tr>
+          )}
+      </React.Fragment>
+    );
+  };
+
   if (mode === 'split') {
     return (
       <SideBySideDiffChunk
@@ -408,152 +558,50 @@ export const DiffChunk = memo(function DiffChunk({
     );
   }
 
+  // `table-fixed` takes its column widths from the first row, which is a spacer
+  // whenever the rows above the mounted range are collapsed into one. Without a
+  // colgroup the code column then loses its width, the same line wraps to a
+  // different height depending on where the range sits, and re-measuring it
+  // moves the range again — an oscillation that never settles.
+  const columns = (
+    <colgroup>
+      <col className="w-[var(--line-number-width)]" />
+      <col className="w-[var(--line-number-width)]" />
+      <col />
+    </colgroup>
+  );
+
+  if (!isVirtualized) {
+    return (
+      <div ref={wrapperRef} className="bg-github-bg-primary">
+        <table className="w-full table-fixed border-collapse font-mono text-sm leading-5">
+          {columns}
+          <tbody>{chunk.lines.map((line, index) => renderLineGroup(line, index))}</tbody>
+        </table>
+      </div>
+    );
+  }
+
   return (
-    <div className="bg-github-bg-primary">
+    <div ref={wrapperRef} className="bg-github-bg-primary">
       <table className="w-full table-fixed border-collapse font-mono text-sm leading-5">
+        {columns}
         <tbody>
-          {chunk.lines.map((line, index) => {
-            const currentLineNumber = line.newLineNumber || line.oldLineNumber || 0;
-            const currentLineSide: DiffSide = line.type === 'delete' ? 'old' : 'new';
-            const formTargetLineNumber = commentingLine
-              ? Array.isArray(commentingLine.lineNumber)
-                ? commentingLine.lineNumber[1]
-                : commentingLine.lineNumber
-              : null;
-
-            // Determine which line number and side to use for fetching comments
-            // Delete lines: use oldLineNumber and 'old' side
-            // Add/normal lines: use newLineNumber and 'new' side
-            const commentLineNumber =
-              line.type === 'delete' ? line.oldLineNumber : line.newLineNumber;
-            const commentSide: DiffSide = line.type === 'delete' ? 'old' : 'new';
-            const lineThreads = commentLineNumber
-              ? getThreadsForLine(commentLineNumber, commentSide)
-              : [];
-            // Generate ID for all lines to match the format used in useKeyboardNavigation
-            const lineId = `file-${fileIndex}-chunk-${chunkIndex}-line-${index}`;
-            const isCurrentLine =
-              cursor && cursor.chunkIndex === chunkIndex && cursor.lineIndex === index;
-            const selection = commentLineNumber
-              ? { side: commentSide, lineNumber: commentLineNumber }
-              : null;
-
-            return (
-              <React.Fragment key={index}>
-                <DiffLineRow
-                  line={line}
-                  index={index}
-                  lineId={lineId}
-                  isCurrentLine={isCurrentLine || false}
-                  hoveredLineIndex={hoveredLine}
-                  selectedLineStyle={getSelectedLineStyle(
-                    line.newLineNumber || line.oldLineNumber,
-                    line.type === 'delete' ? 'old' : 'new',
-                  )}
-                  onMouseEnter={() => {
-                    setHoveredLine(index);
-                  }}
-                  onMouseLeave={() => setHoveredLine(null)}
-                  onMouseMove={() => {
-                    if (isDragging && startLine) {
-                      const lineNumber = line.newLineNumber || line.oldLineNumber;
-                      if (lineNumber) {
-                        setEndLine(lineNumber);
-                      }
-                    }
-                  }}
-                  onCommentButtonMouseDown={(e) => {
-                    e.stopPropagation();
-                    if (e.shiftKey) {
-                      e.preventDefault();
-                    }
-                    handleCommentButtonMouseDown({
-                      isShiftClick: e.shiftKey,
-                      selection,
-                    });
-                  }}
-                  syntaxTheme={syntaxTheme}
-                  filename={filename}
-                  diffSegments={wordLevelDiffMap.get(index)}
-                  onClick={(e) => {
-                    // Determine the side based on line type for unified mode
-                    const side = line.type === 'delete' ? 'left' : 'right';
-                    if (e.shiftKey) {
-                      e.preventDefault();
-                    }
-                    handleRowClick({
-                      isShiftClick: e.shiftKey,
-                      lineIndex: index,
-                      navigationSide: side,
-                      selection,
-                    });
-                  }}
-                />
-
-                {lineThreads.map((thread) => {
-                  const layout = getCommentLayout(line);
-                  return (
-                    <tr key={thread.id} className="bg-github-bg-secondary">
-                      <td colSpan={3} className="p-0 border-t border-github-border">
-                        <div
-                          className={`flex ${
-                            layout === 'left'
-                              ? 'justify-start'
-                              : layout === 'right'
-                                ? 'justify-end'
-                                : 'justify-center'
-                          }`}
-                        >
-                          <div className={`${layout === 'full' ? 'w-full' : 'w-1/2'} m-2 mx-4`}>
-                            <CommentThreadCard
-                              thread={thread}
-                              showAuthorBadges={showAuthorBadges}
-                              onGeneratePrompt={onGenerateThreadPrompt}
-                              onRemoveThread={onRemoveThread}
-                              onReplyToThread={onReplyToThread}
-                              onRemoveMessage={onRemoveMessage}
-                              onUpdateMessage={onUpdateMessage}
-                              syntaxTheme={syntaxTheme}
-                            />
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-
-                {commentingLine &&
-                  commentingLine.side === currentLineSide &&
-                  formTargetLineNumber === currentLineNumber && (
-                    <tr className="bg-[var(--bg-secondary)]">
-                      <td colSpan={3} className="p-0">
-                        <div
-                          className={`flex ${
-                            getCommentLayout(line) === 'left'
-                              ? 'justify-start'
-                              : getCommentLayout(line) === 'right'
-                                ? 'justify-end'
-                                : 'justify-center'
-                          }`}
-                        >
-                          <div
-                            className={`${getCommentLayout(line) === 'full' ? 'w-full' : 'w-1/2'}`}
-                          >
-                            <CommentForm
-                              onSubmit={handleSubmitComment}
-                              onCancel={handleCancelComment}
-                              selectedCode={getSelectedCodeContent()}
-                              syntaxTheme={syntaxTheme}
-                              filename={filename}
-                            />
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-              </React.Fragment>
-            );
+          {paddingTop > 0 && (
+            <tr style={{ height: paddingTop }} aria-hidden="true">
+              <td colSpan={3} className="p-0" />
+            </tr>
+          )}
+          {virtualItems.map((virtualItem) => {
+            const line = chunk.lines[virtualItem.index];
+            if (!line) return null;
+            return renderLineGroup(line, virtualItem.index, true);
           })}
+          {paddingBottom > 0 && (
+            <tr style={{ height: paddingBottom }} aria-hidden="true">
+              <td colSpan={3} className="p-0" />
+            </tr>
+          )}
         </tbody>
       </table>
     </div>

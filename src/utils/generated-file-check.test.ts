@@ -82,10 +82,6 @@ describe('isGeneratedFile', () => {
 
   describe('Lazy Evaluation', () => {
     it('does not call getHeaderLines if path match is found', () => {
-      // We can't easily spy on a plain function passed as arg without a wrapper,
-      // but we can pass a dummy function and ensure it's not strictly needed for the result
-
-      // Actually simpler: if we pass a function that throws, it should NOT throw if path matches
       const throwFn = () => {
         throw new Error('Should not be called');
       };

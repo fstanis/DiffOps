@@ -1,4 +1,3 @@
-// Theme configuration
 const LIGHT_THEMES = [
   { id: 'github', label: 'GitHub Light' },
   { id: 'vsLight', label: 'VS Light' },
@@ -15,8 +14,6 @@ const DARK_THEMES = [
   { id: 'dracula', label: 'Dracula' },
   { id: 'okaidia', label: 'Okaidia' },
 ];
-
-// Built-in themes don't require CSS management
 
 type SyntaxThemeOption = (typeof LIGHT_THEMES | typeof DARK_THEMES)[number];
 

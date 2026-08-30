@@ -50,8 +50,7 @@ function ThreadMessageItem({
 
     confirmButtonRef.current?.focus();
 
-    // Capture phase so Escape only cancels the confirmation and never reaches
-    // surrounding Escape handlers (e.g. the CommentsListModal close hotkey).
+    // Capture phase so Escape cancels only this confirmation, not surrounding Escape handlers.
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();

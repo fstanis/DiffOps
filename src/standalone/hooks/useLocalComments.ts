@@ -17,7 +17,6 @@ export function useLocalComments(commitHash?: string) {
     return [];
   });
 
-  // Save comments to localStorage whenever comments change
   useEffect(() => {
     localStorage.setItem(storageKey, JSON.stringify(comments));
   }, [comments, storageKey]);

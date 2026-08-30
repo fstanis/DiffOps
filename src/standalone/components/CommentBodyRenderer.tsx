@@ -23,12 +23,8 @@ interface HastNode {
 const isWhitespaceOnlyText = (node: HastNode): boolean =>
   node.type === 'text' && node.value?.trim() === '';
 
-// react-markdown emits whitespace-only text nodes between list siblings —
-// between items, and between an item's text and a nested list. List items
-// render with whitespace-pre-wrap and white-space inherits, so those
-// structural separators render as blank lines at every nesting level under a
-// list item. Dropping them mirrors normal white-space collapsing; text
-// directly inside ul/ol is never content.
+// Drop whitespace-only text nodes between list siblings — with whitespace-pre-wrap
+// inherited, react-markdown's structural whitespace would otherwise render as blank lines.
 const rehypeTightenLists = () => (tree: HastNode) => {
   const walk = (node: HastNode): void => {
     for (const child of node.children ?? []) {
@@ -139,8 +135,7 @@ const getCommentMarkdownComponents = (syntaxTheme?: AppearanceSettings['syntaxTh
   h6: ({ children }: { children?: React.ReactNode }) => (
     <h6 className="text-sm font-semibold mt-3 mb-1 first:mt-0">{children}</h6>
   ),
-  // whitespace-pre-wrap keeps consecutive spaces/tabs inside a paragraph, which the
-  // pre-markdown plain-text rendering preserved (e.g. agent comments aligned with spaces).
+  // whitespace-pre-wrap preserves consecutive spaces/tabs, matching the pre-markdown plain-text rendering.
   p: ({ children }: { children?: React.ReactNode }) => (
     <p className="my-2 first:mt-0 last:mb-0 whitespace-pre-wrap">{children}</p>
   ),

@@ -1,7 +1,4 @@
-// Regex-based import scanner for the JS/TS family: static imports, re-exports,
-// require calls, and dynamic imports. Relative specifiers only — bare package
-// names and path aliases are not resolvable against the repository, so the
-// candidate list never contains them.
+// Regex-based import scanner for the JS/TS family. Relative specifiers only — bare package names and path aliases aren't resolvable against the repository, so the candidate list never contains them.
 
 const IMPORT_SPECIFIER_PATTERNS: RegExp[] = [
   /\bimport\s+[^;'"`]*?from\s*['"]([^'"]+)['"]/g,

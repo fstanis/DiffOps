@@ -17,7 +17,7 @@ export const runFail = (stderr: string, exitCode = 1): GitRunResult => ({
 export type FakeRunHandler = (args: string[]) => GitRunResult;
 
 export interface FakeGitWorkerClientOptions {
-  /** Repository files (including .git/*) served by readFile, as text or bytes. */
+  /** Repository files (including .git/*) served by readFile. */
   files?: Record<string, string | Uint8Array>;
   run?: FakeRunHandler;
   /** Warnings mount() resolves with (unreadable-entry messages). */

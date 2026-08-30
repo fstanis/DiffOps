@@ -3,7 +3,6 @@ import { describe, it, expect, beforeEach, vi } from 'bun:test';
 
 import { useLocalComments } from './useLocalComments';
 
-// Mock localStorage
 const localStorageMock = {
   getItem: vi.fn(),
   setItem: vi.fn(),
@@ -66,7 +65,6 @@ describe('useLocalComments', () => {
   it('should remove a comment by id', () => {
     const { result } = renderHook(() => useLocalComments('test-commit'));
 
-    // Add two comments
     act(() => {
       result.current.addComment('test.ts', 10, 'Comment 1');
       result.current.addComment('test.ts', 20, 'Comment 2');
@@ -101,7 +99,6 @@ describe('useLocalComments', () => {
   it('should clear all comments and remove from localStorage', () => {
     const { result } = renderHook(() => useLocalComments('test-commit'));
 
-    // Add multiple comments
     act(() => {
       result.current.addComment('test.ts', 10, 'Comment 1');
       result.current.addComment('test.ts', 20, 'Comment 2');

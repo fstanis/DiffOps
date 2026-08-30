@@ -11,8 +11,7 @@ const RECENT_DIFFS_STORE = 'recentDiffs';
 const RECENT_REPOS_STORE = 'recentRepos';
 const LAST_REPO_KEY = 'last';
 const RECENT_DIFF_LIMIT = 10;
-// v3 added narrations; v4 added file explanations; raise again whenever a new
-// store joins the list.
+// v3 added narrations; v4 added file explanations — raise again when a new store joins the list.
 const DATABASE_VERSION = 4;
 
 /** A persisted comment session: threads plus the version the next writer must base on. */
@@ -77,7 +76,6 @@ export const buildCommentSessionKey = (
   baseMode: string = '',
 ): string => [repositoryId, base, target, baseMode].join('|');
 
-/** Builds the storage key for one file's explanation within a comment session. */
 export const buildFileExplanationKey = (sessionKey: string, path: string): string =>
   [sessionKey, path].join('|');
 

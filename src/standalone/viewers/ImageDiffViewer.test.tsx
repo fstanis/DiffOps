@@ -28,7 +28,6 @@ describe('ImageDiffViewer', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    // Mock fetch to return a blob with size
     (global.fetch as any).mockResolvedValue({
       blob: () => Promise.resolve({ size: 1024 }),
     });
@@ -179,15 +178,12 @@ describe('ImageDiffViewer', () => {
 
       const image = screen.getByRole('img');
 
-      // Mock naturalWidth and naturalHeight
       Object.defineProperty(image, 'naturalWidth', { value: 800, configurable: true });
       Object.defineProperty(image, 'naturalHeight', { value: 600, configurable: true });
 
-      // Simulate image load
       const loadEvent = new Event('load');
       image.dispatchEvent(loadEvent);
 
-      // Wait for the state to update and info to be displayed
       await waitFor(() => {
         expect(screen.getByText(/W: 800px \| H: 600px/)).toBeInTheDocument();
         expect(screen.getByText(/1\.0 KB/)).toBeInTheDocument();

@@ -1,6 +1,4 @@
-// User settings for the standalone app live in localStorage, exposed through
-// the same { version, client } shape as the server's ~/.diffops/config.json.
-// The two worlds are intentionally separate (see docs/plans/pwa-port.md).
+// User settings live in localStorage under the server's { version, client } config.json shape, but the two are intentionally separate stores (see docs/plans/pwa-port.md).
 
 const STORAGE_KEY = 'diffops-standalone:user-settings';
 

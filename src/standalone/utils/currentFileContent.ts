@@ -1,17 +1,13 @@
 import type { DiffFile } from '../../types/diff';
 
-// Cache per DiffFile object identity: a re-fetched diff produces new file
-// objects, so watch reloads invalidate the cache naturally, while plain
-// re-renders keep serving cached content without a flash of loading state.
+// Keyed by DiffFile object identity so a re-fetched diff (new file objects) invalidates the cache naturally.
 const contentCache = new WeakMap<DiffFile, string[]>();
 const pendingFetches = new WeakMap<DiffFile, Promise<string[]>>();
 
-// Whole-file text for arbitrary repository paths (explain probes and re-ask
-// prompts), cached per ref and path.
+// Whole-file text for arbitrary repository paths (explain probes and re-ask prompts), cached per ref and path.
 const blobTextCache = new Map<string, string>();
 
-// An added file's hunks already contain the whole new file, so no blob
-// fetch is needed for it.
+// An added file's hunks already contain the whole new file, so no blob fetch is needed.
 export function linesFromAddedFile(file: DiffFile): string[] {
   const lines: string[] = [];
   for (const chunk of file.chunks) {
@@ -38,13 +34,10 @@ async function fetchBlobText(path: string, ref: string): Promise<string> {
   return response.text();
 }
 
-// DiffFile-keyed fetching deliberately bypasses the path-keyed cache: a fresh
-// diff produces new file objects whose content must be re-read, not served
-// from an earlier instance's fetch.
+// DiffFile-keyed fetching deliberately bypasses the path-keyed cache, since a fresh diff's file objects must be re-read.
 async function fetchBlobLines(path: string, ref: string): Promise<string[]> {
   const text = await fetchBlobText(path, ref);
   const lines = text.split('\n');
-  // Remove last empty line if file doesn't end with newline
   if (lines.length > 0 && lines[lines.length - 1] === '') {
     lines.pop();
   }

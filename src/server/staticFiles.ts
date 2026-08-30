@@ -1,12 +1,7 @@
-// Static-asset serving for the diffops server: the MIME map and the
-// SPA-fallback handler over a directory on disk. The built app is entirely
-// static — it talks to the AI gateway from the browser — so this is the whole
-// server.
+// Static-asset serving for the diffops server: the MIME map and the SPA-fallback handler over a directory on disk.
 import { resolve, sep } from 'node:path';
 
-// Service workers only install when served with a JavaScript MIME type, and
-// Bun.file does not always set one through new Response(file), so map it here.
-// The wasm engine streams-instantiates when it gets the wasm MIME type.
+// Service workers require the JS MIME type, and Bun.file doesn't always set one on new Response(file); wasm needs the wasm MIME type to stream-instantiate.
 const MIME_TYPES: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
   '.html': 'text/html; charset=utf-8',
@@ -19,7 +14,6 @@ const MIME_TYPES: Record<string, string> = {
   '.webmanifest': 'application/manifest+json; charset=utf-8',
 };
 
-/** Whether a resolved candidate path still sits inside its parent directory. */
 const isPathInside = (candidate: string, parent: string): boolean =>
   candidate === parent || candidate.startsWith(`${parent}${sep}`);
 

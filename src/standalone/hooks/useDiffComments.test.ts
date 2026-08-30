@@ -4,7 +4,6 @@ import { describe, it, expect, vi, beforeEach } from 'bun:test';
 import type { DiffContextStorage } from '../../types/diff';
 import { useDiffComments } from './useDiffComments';
 
-// Mock StorageService
 let mockDiffContextData: DiffContextStorage | null = null;
 vi.mock('../services/StorageService', () => ({
   storageService: {
@@ -39,7 +38,6 @@ vi.mock('../services/StorageService', () => ({
   },
 }));
 
-// Mock diffUtils
 vi.mock('../utils/diffUtils', () => ({
   getLanguageFromPath: vi.fn((path: string) => {
     if (path.endsWith('.ts') || path.endsWith('.tsx')) return 'typescript';
@@ -138,7 +136,6 @@ describe('useDiffComments', () => {
         resolvedTargetCommitish: 'def5678',
       });
 
-      // Check if comments are in the correct order
       expect(result.current.comments).toHaveLength(2);
       expect(result.current.comments[0]?.position.line).toEqual({ start: 36, end: 39 });
       expect(result.current.comments[1]?.position.line).toBe(42);
@@ -177,7 +174,6 @@ src/client/components/CommentForm.tsx:L42
 
       const prompt = result.current.generateAllCommentsPrompt();
 
-      // Check if comments are in the correct order
       expect(result.current.comments).toHaveLength(2);
       expect(result.current.comments[0]?.filePath).toBe('src/client/App.tsx');
       expect(result.current.comments[1]?.filePath).toBe('src/server/server.ts');

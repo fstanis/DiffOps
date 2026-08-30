@@ -4,7 +4,6 @@ import { describe, it, expect, beforeEach, vi } from 'bun:test';
 import { useDiffComments } from './useDiffComments';
 import { useViewedFiles } from './useViewedFiles';
 
-// Mock StorageService with isolated storage
 const mockStorage = new Map<string, any>();
 
 vi.mock('../services/StorageService', () => ({
@@ -97,17 +96,14 @@ describe('Repository Isolation Integration Tests', () => {
 
   describe('useDiffComments - Repository Isolation', () => {
     it('should isolate comments between different repositories', () => {
-      // Render hook for repository 1
       const { result: result1 } = renderHook(() =>
         useDiffComments('base', 'target', undefined, undefined, 'repo-1'),
       );
 
-      // Render hook for repository 2
       const { result: result2 } = renderHook(() =>
         useDiffComments('base', 'target', undefined, undefined, 'repo-2'),
       );
 
-      // Add comment in repository 1
       act(() => {
         result1.current.addComment({
           filePath: 'test.ts',
@@ -117,14 +113,11 @@ describe('Repository Isolation Integration Tests', () => {
         });
       });
 
-      // Repository 1 should have 1 comment
       expect(result1.current.comments.length).toBe(1);
       expect(result1.current.comments[0]?.body).toBe('Comment in repo 1');
 
-      // Repository 2 should have 0 comments
       expect(result2.current.comments.length).toBe(0);
 
-      // Add comment in repository 2
       act(() => {
         result2.current.addComment({
           filePath: 'test.ts',
@@ -134,22 +127,18 @@ describe('Repository Isolation Integration Tests', () => {
         });
       });
 
-      // Repository 1 should still have only its own comment
       expect(result1.current.comments.length).toBe(1);
       expect(result1.current.comments[0]?.body).toBe('Comment in repo 1');
 
-      // Repository 2 should have only its own comment
       expect(result2.current.comments.length).toBe(1);
       expect(result2.current.comments[0]?.body).toBe('Comment in repo 2');
     });
 
     it('should isolate comments in working diff mode across repositories', () => {
-      // Repository 1 - working diff
       const { result: result1 } = renderHook(() =>
         useDiffComments('HEAD', 'working', 'abc123', undefined, 'repo-1'),
       );
 
-      // Repository 2 - working diff with same commit
       const { result: result2 } = renderHook(() =>
         useDiffComments('HEAD', 'working', 'abc123', undefined, 'repo-2'),
       );
@@ -163,10 +152,8 @@ describe('Repository Isolation Integration Tests', () => {
         });
       });
 
-      // Repo 1 should have the comment
       expect(result1.current.comments.length).toBe(1);
 
-      // Repo 2 should NOT see the comment
       expect(result2.current.comments.length).toBe(0);
     });
   });
@@ -189,40 +176,32 @@ describe('Repository Isolation Integration Tests', () => {
         chunks: [],
       };
 
-      // Repository 1
       const { result: result1 } = renderHook(() =>
         useViewedFiles('base', 'target', undefined, undefined, [mockFile1], 'repo-1'),
       );
 
-      // Repository 2
       const { result: result2 } = renderHook(() =>
         useViewedFiles('base', 'target', undefined, undefined, [mockFile2], 'repo-2'),
       );
 
-      // Mark file as viewed in repository 1
       await act(async () => {
         await result1.current.toggleFileViewed('file1.ts', mockFile1);
       });
 
-      // Repository 1 should have 1 viewed file
       expect(result1.current.viewedFiles.has('file1.ts')).toBe(true);
       expect(result1.current.viewedFiles.size).toBe(1);
 
-      // Repository 2 should have 0 viewed files
       expect(result2.current.viewedFiles.has('file1.ts')).toBe(false);
       expect(result2.current.viewedFiles.size).toBe(0);
 
-      // Mark file as viewed in repository 2
       await act(async () => {
         await result2.current.toggleFileViewed('file2.ts', mockFile2);
       });
 
-      // Repository 1 should still only have file1.ts
       expect(result1.current.viewedFiles.has('file1.ts')).toBe(true);
       expect(result1.current.viewedFiles.has('file2.ts')).toBe(false);
       expect(result1.current.viewedFiles.size).toBe(1);
 
-      // Repository 2 should only have file2.ts
       expect(result2.current.viewedFiles.has('file1.ts')).toBe(false);
       expect(result2.current.viewedFiles.has('file2.ts')).toBe(true);
       expect(result2.current.viewedFiles.size).toBe(1);
@@ -247,22 +226,16 @@ describe('Repository Isolation Integration Tests', () => {
         isGenerated: true,
       };
 
-      // Repository 1 with generated file
       const { result: result1 } = renderHook(() =>
         useViewedFiles('base', 'target', undefined, undefined, [generatedFile1], 'repo-1'),
       );
 
-      // Repository 2 with different generated file
       const { result: result2 } = renderHook(() =>
         useViewedFiles('base', 'target', undefined, undefined, [generatedFile2], 'repo-2'),
       );
 
-      // Each repository should only auto-mark its own generated files
-      // Note: Auto-marking is async, so we need to wait for the effect
+      // Auto-marking is async; wait for the effect before asserting.
       setTimeout(() => {
-        // Repo 1 may have package-lock.json auto-marked
-        // Repo 2 may have yarn.lock auto-marked
-        // But they should NOT share auto-marked files
         const repo1HasYarnLock = result1.current.viewedFiles.has('yarn.lock');
         const repo2HasPackageLock = result2.current.viewedFiles.has('package-lock.json');
 
@@ -273,8 +246,7 @@ describe('Repository Isolation Integration Tests', () => {
   });
 
   describe('Cross-Repository Data Integrity', () => {
-    // Skip this test due to async timing issues in test environment
-    // The functionality is covered by other isolation tests
+    // Skipped: async timing issues in this environment; covered by other isolation tests.
     it.skip('should maintain separate view counts for different repositories', async () => {
       const file1 = {
         path: 'file1.ts',
@@ -291,7 +263,6 @@ describe('Repository Isolation Integration Tests', () => {
         chunks: [],
       };
 
-      // Repository 1 - view 1 file
       const { result: result1 } = renderHook(() =>
         useViewedFiles('base', 'target', undefined, undefined, [file1], 'repo-1'),
       );
@@ -300,7 +271,6 @@ describe('Repository Isolation Integration Tests', () => {
         await result1.current.toggleFileViewed('file1.ts', file1);
       });
 
-      // Repository 2 - view a different file
       const { result: result2 } = renderHook(() =>
         useViewedFiles('base', 'target', undefined, undefined, [file2], 'repo-2'),
       );
@@ -309,7 +279,6 @@ describe('Repository Isolation Integration Tests', () => {
         await result2.current.toggleFileViewed('file2.ts', file2);
       });
 
-      // Each repo should only have 1 viewed file
       expect(result1.current.viewedFiles.size).toBe(1);
       expect(result1.current.viewedFiles.has('file1.ts')).toBe(true);
       expect(result1.current.viewedFiles.has('file2.ts')).toBe(false);
@@ -328,7 +297,6 @@ describe('Repository Isolation Integration Tests', () => {
         chunks: [],
       };
 
-      // Both repos have a file with the same path
       const { result: result1 } = renderHook(() =>
         useViewedFiles('base', 'target', undefined, undefined, [file], 'repo-1'),
       );
@@ -337,15 +305,12 @@ describe('Repository Isolation Integration Tests', () => {
         useViewedFiles('base', 'target', undefined, undefined, [file], 'repo-2'),
       );
 
-      // Mark as viewed in repo 1
       await act(async () => {
         await result1.current.toggleFileViewed('common.ts', file);
       });
 
-      // Repo 1 should have it marked
       expect(result1.current.viewedFiles.has('common.ts')).toBe(true);
 
-      // Repo 2 should NOT have it marked
       expect(result2.current.viewedFiles.has('common.ts')).toBe(false);
     });
   });

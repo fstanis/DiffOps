@@ -548,8 +548,7 @@ describe('installLocalApiBridge', () => {
     const bridge = install();
     bridge.restore();
 
-    // fetch is restored as a bound reference to the previous value, so route
-    // a call through it and check it reaches the pre-install implementation.
+    // fetch is restored as a bound reference, so route a call through it to check it reaches the pre-install implementation.
     await window.fetch('/api/diff');
     expect(fetchMock).toHaveBeenCalledWith('/api/diff');
   });
@@ -765,7 +764,6 @@ describe('installLocalApiBridge repository mode', () => {
     const { repoBridge } = installWithRepo();
     expect(repoBridge.getCommentQuery()).toBe('base=HEAD&target=.');
 
-    // After the client saves comments for another selection, exports follow it.
     await fetch('/api/comments?base=main&target=feature', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

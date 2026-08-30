@@ -10,16 +10,10 @@ import type {
   ViewMode,
 } from './types';
 
-/**
- * Get the starting position for navigation
- */
 export function getStartPosition(cursor: CursorPosition | null): CursorPosition {
   return cursor || { fileIndex: 0, chunkIndex: 0, lineIndex: -1, side: 'right' };
 }
 
-/**
- * Check if we've wrapped around to the starting position
- */
 function hasWrappedAround(
   current: CursorPosition,
   start: CursorPosition,
@@ -33,9 +27,6 @@ function hasWrappedAround(
   );
 }
 
-/**
- * Advance to the next position in the given direction
- */
 function advancePosition(
   pos: CursorPosition,
   direction: NavigationDirection,
@@ -48,25 +39,19 @@ function advancePosition(
   if (direction === 'next') {
     lineIndex++;
 
-    // Keep advancing until we find a valid position
     while (wrappedCount < totalFiles) {
-      // Check if current line exists
       if (files[fileIndex]?.chunks[chunkIndex]?.lines[lineIndex]) {
         return { ...pos, fileIndex, chunkIndex, lineIndex };
       }
 
-      // Move to next chunk
       chunkIndex++;
       lineIndex = 0;
 
-      // Check if current chunk exists
       if (!files[fileIndex]?.chunks[chunkIndex]) {
-        // Move to next file
         fileIndex++;
         chunkIndex = 0;
         lineIndex = 0;
 
-        // Wrap around to beginning
         if (fileIndex >= totalFiles) {
           fileIndex = 0;
           wrappedCount++;
@@ -76,17 +61,13 @@ function advancePosition(
   } else {
     lineIndex--;
 
-    // Keep advancing backward until we find a valid position
     while (wrappedCount < totalFiles) {
-      // Check if we need to move to previous chunk
       if (lineIndex < 0) {
         chunkIndex--;
 
-        // Check if we need to move to previous file
         if (chunkIndex < 0) {
           fileIndex--;
 
-          // Wrap around to end
           if (fileIndex < 0) {
             fileIndex = totalFiles - 1;
             wrappedCount++;
@@ -107,17 +88,14 @@ function advancePosition(
         }
       }
 
-      // Check if current position is valid
       if (lineIndex >= 0 && files[fileIndex]?.chunks[chunkIndex]?.lines[lineIndex]) {
         return { ...pos, fileIndex, chunkIndex, lineIndex };
       }
 
-      // If we couldn't find a valid line in this chunk, continue to previous chunk
       if (lineIndex < 0) {
         continue;
       }
 
-      // Otherwise, keep going backward
       lineIndex--;
     }
   }
@@ -125,9 +103,6 @@ function advancePosition(
   return null;
 }
 
-/**
- * Search for the next position matching the filter
- */
 export function findNextMatchingPosition(
   startPos: CursorPosition,
   direction: NavigationDirection,
@@ -146,13 +121,11 @@ export function findNextMatchingPosition(
 
     current = nextPos;
 
-    // Check if we've wrapped around to start
     if (hasWrappedAround(current, startPos, started)) {
       break;
     }
     started = true;
 
-    // Check if position matches filter
     if (filter(current, files)) {
       const fixed = fixSide(current, files);
       return {

@@ -1,23 +1,16 @@
-// Preload for `bun test` (registered from bunfig.toml): installs happy-dom as
-// the DOM for every test file, the jest-dom matchers, and the global stubs the
-// suite grew up with under vitest. Runs once per test file — `bun test
-// --isolate` gives each file a fresh global object, replacing vitest's
-// per-file forks.
+// Preload for `bun test` (via bunfig.toml): installs happy-dom, jest-dom matchers, and vitest-compat globals. Runs once per file since `bun test --isolate` gives each file a fresh global object.
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
 import '@testing-library/jest-dom';
 import { vi } from 'bun:test';
 
 GlobalRegistrator.register({ url: 'http://localhost:3000/' });
 
-// Mock fetch globally for component tests (vi.fn's absent implementation
-// returns undefined; tests install per-test behavior through mockFetch below).
+// vi.fn's default has no implementation and resolves undefined until a test calls mockFetch.
 const globalFetchMock = vi.fn<typeof fetch>();
 globalThis.fetch = globalFetchMock as unknown as typeof fetch;
 
-// Suppress error logs during tests
 globalThis.console.error = vi.fn() as unknown as typeof console.error;
 
-// Mock window.getComputedStyle
 Object.defineProperty(window, 'getComputedStyle', {
   value: () => ({
     getPropertyValue: () => '',
@@ -54,7 +47,6 @@ export const mockFetch = (response: unknown, revisionsResponse?: unknown) => {
   }) as unknown as typeof fetch);
 };
 
-/** Programs the global fetch mock to reject with the given message. */
 export const mockFetchError = (error: string) => {
   globalFetchMock.mockImplementation((() =>
     Promise.reject(new Error(error))) as unknown as typeof fetch);
@@ -66,8 +58,7 @@ const viCompat = vi as unknown as Record<string, unknown>;
 const stubbedGlobals: GlobalPropertyRecord[] = [];
 const stubbedEnvs: GlobalPropertyRecord[] = [];
 
-// vitest APIs bun:test lacks; each shim defers to a native implementation if
-// bun grows one.
+// vitest APIs bun:test lacks; each shim defers to a native implementation if bun grows one.
 viCompat.mocked ??= (item: unknown) => item;
 
 // vitest tolerates clearAllTimers with real timers active; bun throws.

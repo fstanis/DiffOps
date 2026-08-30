@@ -14,10 +14,7 @@ export interface PrismSyntaxHighlighterProps {
   className?: string;
   syntaxTheme?: AppearanceSettings['syntaxTheme'];
   filename?: string;
-  /**
-   * Pre-computed tokens per line. When provided, these tokens are
-   * rendered instead of tokenizing `code` per line.
-   */
+  /** When set, rendered instead of tokenizing `code` per line. */
   precomputedTokens?: Token[][] | null;
   renderToken?: (
     token: Token,
@@ -44,7 +41,6 @@ export const PrismSyntaxHighlighter = React.memo(function PrismSyntaxHighlighter
   const theme = getSyntaxTheme(syntaxTheme);
   const hasPrecomputed = !!precomputedTokens;
 
-  // Memoize the render function to prevent recreation on every render.
   const renderHighlight = useCallback(
     ({ style, tokens, getLineProps, getTokenProps }: RenderProps) => {
       const lines = precomputedTokens ?? tokens;

@@ -228,8 +228,7 @@ export const DiffViewer = memo(function DiffViewer({
   const [isVisible, setIsVisible] = useState(false);
   const { isMobile } = useViewport();
 
-  // The explanation state lives here (not in the header or panel) so that
-  // collapsing the file keeps the loaded explanation around.
+  // Lives here, not in the header or panel, so collapsing the file keeps the loaded explanation around.
   const explain = useFileExplain({
     file,
     commitLabel,
@@ -241,13 +240,12 @@ export const DiffViewer = memo(function DiffViewer({
   const viewer = getViewerForFile(file);
   const hasBlobContent = baseCommitish !== 'stdin' && targetCommitish !== 'stdin';
   const canExpandHiddenLines = hasBlobContent && (viewer.canExpandHiddenLines?.(file) ?? false);
-  // Tokenize the whole file so embedded blocks (e.g. <script>/<style>) are
-  // highlighted by their own language instead of line-by-line, which can't see
-  // the surrounding context.
+  // Tokenizes the whole file so embedded blocks (e.g. <script>/<style>) are highlighted by their
+  // own language instead of line-by-line, which can't see the surrounding context.
   const wholeFileHighlight = viewer.id === 'default' && isWholeFileHighlightExtension(file.path);
 
-  // Per-file view modes: unified leads, full needs a new-file side, previews
-  // exist only for the markdown and notebook viewers.
+  // "full" needs a new-file side, so it's unavailable for deleted files; previews exist only for
+  // the markdown and notebook viewers.
   const isPreviewCapable = viewer.id === 'markdown' || viewer.id === 'notebook';
   const supportsFullMode = file.status !== 'deleted';
   const viewModeOptions: FileViewMode[] = [
@@ -271,7 +269,6 @@ export const DiffViewer = memo(function DiffViewer({
     [onFileViewModeChange, file.path],
   );
 
-  // Observe visibility for lazy prefetch
   useEffect(() => {
     if (!canExpandHiddenLines) return;
     const el = containerRef.current;
@@ -286,7 +283,7 @@ export const DiffViewer = memo(function DiffViewer({
     return () => observer.disconnect();
   }, [canExpandHiddenLines]);
 
-  // Pre-fetch line counts (lightweight) only for visible, non-collapsed files that can expand
+  // Prefetches line counts (lightweight) only for visible, non-collapsed, expandable files.
   useEffect(() => {
     if (isVisible && !isCollapsed && canExpandHiddenLines) {
       void prefetchFileContent(file);

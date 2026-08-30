@@ -1,13 +1,12 @@
 import { isJsTsSourcePath, scanRelativeImportSpecifiers } from './importScanner';
 
-// Probe order for an extensionless import: the specifier verbatim (explicit
-// extensions), then extension completion, then index-file completion.
+// Probe order for an extensionless import: specifier verbatim, then extension completion, then index-file completion.
 const EXTENSION_COMPLETIONS = ['.ts', '.tsx', '.js', '.jsx', '.mts', '.cts', '.mjs', '.cjs'];
 
 export interface ExplainCandidatesContext {
   sourcePath: string;
   source: string;
-  /** Verifies one repository path exists; resolves false when it does not. */
+  /** Whether the given repository-relative path exists. */
   fileExists: (path: string) => Promise<boolean>;
 }
 
@@ -36,10 +35,7 @@ function buildProbePaths(extensionlessPath: string): string[] {
   ];
 }
 
-/**
- * Resolves the file's relative imports to verified repository paths — extension
- * and index completion probed in order; unresolvable imports are absent.
- */
+/** Resolves the file's relative imports to verified repository paths; unresolvable imports are absent. */
 export async function resolveExplainCandidates(
   context: ExplainCandidatesContext,
 ): Promise<string[]> {

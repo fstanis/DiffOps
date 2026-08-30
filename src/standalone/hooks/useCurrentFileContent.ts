@@ -17,8 +17,7 @@ export function useCurrentFileContent(
   file: DiffFile,
   targetCommitish?: string,
 ): CurrentFileContentState {
-  // Compute the initial state synchronously so the first paint already shows
-  // the loading placeholder instead of a frame of the unified diff fallback
+  // Computed synchronously so the first paint shows the loading placeholder instead of a frame of the unified diff fallback.
   const resolveInitialState = (): CurrentFileContentState => {
     if (file.status === 'added') {
       return { lines: linesFromAddedFile(file), isLoading: false, error: null };

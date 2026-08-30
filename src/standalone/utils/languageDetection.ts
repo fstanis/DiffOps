@@ -166,15 +166,12 @@ export function getPrismLanguageFromFilename(filename: string): string {
   );
 }
 
-// Extensions for component-style formats that embed multiple languages
-// (e.g. Vue/Svelte/Astro SFCs). These are
-// highlighted by tokenizing the whole file so embedded blocks render correctly.
+// Component-style formats (Vue/Svelte/Astro) embed multiple languages and are highlighted by tokenizing the whole file.
 const WHOLE_FILE_HIGHLIGHT_EXTENSIONS = new Set(['vue', 'svelte', 'astro']);
 
 /**
- * Whether a file is eligible for whole-file syntax highlighting based on its
- * extension. The line-count limit is enforced separately once the file content
- * is available (see useFileLevelTokens).
+ * The line-count limit is enforced separately once the file content is
+ * available (see useFileLevelTokens).
  */
 export function isWholeFileHighlightExtension(filePath: string): boolean {
   const ext = getFileExtension(filePath);

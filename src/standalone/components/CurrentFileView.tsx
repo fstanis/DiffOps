@@ -77,8 +77,6 @@ export const CurrentFileView = React.memo(function CurrentFileView({
   const [selectionAnchor, setSelectionAnchor] = useState<number | null>(null);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
-  // Lines that changed since the base revision. A brand-new file consists
-  // entirely of additions, so no lines are marked in that case.
   const changedLineNumbers = useMemo(() => {
     const changed = new Set<number>();
     if (file.status === 'added') {
@@ -94,9 +92,8 @@ export const CurrentFileView = React.memo(function CurrentFileView({
     return changed;
   }, [file]);
 
-  // Map each new-file line number to the diff positions that reference it, so
-  // keyboard navigation (which walks real chunk data) finds anchor elements
-  // and clicks can report a valid cursor position.
+  // Maps new-file line numbers to diff anchor positions so keyboard navigation can
+  // find anchor elements and clicks can report a valid cursor position.
   const anchorsByLineNumber = useMemo(() => {
     const anchors = new Map<number, AnchorPosition[]>();
     file.chunks.forEach((chunk, chunkIndex) => {
@@ -123,7 +120,6 @@ export const CurrentFileView = React.memo(function CurrentFileView({
     return line?.newLineNumber ?? null;
   }, [cursor, file]);
 
-  // Handle comment trigger from keyboard navigation
   useEffect(() => {
     if (!commentTrigger) {
       return;
@@ -188,16 +184,14 @@ export const CurrentFileView = React.memo(function CurrentFileView({
     }
   };
 
-  // Global mouse up handler for drag selection: commit the selection wherever
-  // the mouse is released, not only on the comment button itself
+  // Global mouseup handler: commits the selection wherever the mouse is released, not only on the comment button.
   useEffect(() => {
     if (!isDragging) {
       return undefined;
     }
 
     const handleGlobalMouseUp = () => {
-      // Defer so the click event fired after mouseup doesn't immediately
-      // close the newly opened (still empty) comment form
+      // Defer so the click that follows mouseup doesn't immediately close the newly opened comment form.
       setTimeout(() => {
         if (startLine !== null) {
           const actualEndLine = endLine ?? startLine;
@@ -225,7 +219,6 @@ export const CurrentFileView = React.memo(function CurrentFileView({
     setCommentingLine(null);
   }, []);
 
-  // Get the code content for the selected lines (for suggestion feature)
   const getSelectedCodeContent = useCallback((): string => {
     if (commentingLine === null) {
       return '';
@@ -261,7 +254,6 @@ export const CurrentFileView = React.memo(function CurrentFileView({
   };
 
   const getSelectedLineStyle = (lineNumber: number): string => {
-    // Show selection during drag
     if (isDragging && startLine !== null) {
       const min = Math.min(startLine, endLine ?? startLine);
       const max = Math.max(startLine, endLine ?? startLine);
@@ -277,7 +269,6 @@ export const CurrentFileView = React.memo(function CurrentFileView({
       }
     }
 
-    // Show selection for existing comment
     if (commentingLine !== null) {
       const start = Array.isArray(commentingLine) ? commentingLine[0] : commentingLine;
       const end = Array.isArray(commentingLine) ? commentingLine[1] : commentingLine;
@@ -361,8 +352,7 @@ export const CurrentFileView = React.memo(function CurrentFileView({
                 {getThreadsForLine(lineNumber).map((thread) => (
                   <tr key={thread.id} className="bg-github-bg-secondary">
                     <td colSpan={2} className="p-0 border-t border-github-border">
-                      {/* Flex wrapper lets the w-full card shrink inside its
-                          mx-4 margins; a plain block would overflow the row */}
+                      {/* Flex wrapper lets the w-full card shrink within its mx-4 margins; a block would overflow the row. */}
                       <div className="flex justify-center">
                         <div className="w-full m-2 mx-4">
                           <CommentThreadCard

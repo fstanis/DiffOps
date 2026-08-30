@@ -10,10 +10,16 @@ const explanation = (overrides: Partial<FileExplanation> = {}): FileExplanation 
       name: 'parseStream',
       type: 'function',
       summary: 'Turns raw samples into beats.',
+      isPublic: true,
       contract: { input: 'samples: number[]', output: 'Beat[]' },
     },
-    { name: 'MAX_GAP_MS', type: 'constant', summary: 'Longest gap still counted as one beat.' },
-    { name: 'SessionEngine', type: 'class', summary: 'Owns the parsing pipeline.' },
+    {
+      name: 'MAX_GAP_MS',
+      type: 'constant',
+      summary: 'Longest gap still counted as one beat.',
+      isPublic: true,
+    },
+    { name: 'SessionEngine', type: 'class', summary: 'Owns the parsing pipeline.', isPublic: true },
   ],
   additionalFilesNeeded: [],
   ...overrides,
@@ -46,7 +52,6 @@ describe('formatFileExplanation', () => {
   it('omits contract rows for symbols without a contract', () => {
     const markdown = formatFileExplanation(explanation());
 
-    // Only the one contracted symbol produced In/Out rows.
     const inRows = markdown.split('\n').filter((line) => line.includes('- In:'));
     const outRows = markdown.split('\n').filter((line) => line.includes('- Out:'));
     expect(inRows).toHaveLength(1);
@@ -59,5 +64,19 @@ describe('formatFileExplanation', () => {
     expect(markdown).not.toContain('function');
     expect(markdown).not.toContain('constant');
     expect(markdown).not.toContain('class');
+  });
+
+  it('flags private symbols inline and leaves public ones unmarked', () => {
+    const markdown = formatFileExplanation(
+      explanation({
+        symbols: [
+          { name: 'run', type: 'function', summary: 'Public entry point.', isPublic: true },
+          { name: 'parseInternal', type: 'function', summary: 'Helper.', isPublic: false },
+        ],
+      }),
+    );
+
+    expect(markdown).toContain('- **`run`** — Public entry point.');
+    expect(markdown).toContain('- **`parseInternal`** *(private)* — Helper.');
   });
 });

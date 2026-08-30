@@ -583,16 +583,14 @@ describe('MarkdownDiffPreview frontmatter diff', () => {
       expect(global.fetch).toHaveBeenCalledTimes(2);
     });
 
-    // Frontmatter change is shown in the structured table…
     expect(await screen.findByText('Old')).toBeInTheDocument();
     expect(screen.getByText('New')).toBeInTheDocument();
     expect(screen.getByText('title')).toBeInTheDocument();
 
-    // …and the raw frontmatter delimiters are stripped from the preview blocks,
+    // The raw frontmatter delimiters are stripped from the preview blocks,
     // so no stray <hr> is rendered from the `---` lines.
     expect(container.querySelector('hr')).toBeNull();
 
-    // Body content following the frontmatter is still rendered.
     expect(screen.getByText('Heading')).toBeInTheDocument();
     expect(screen.getByText('Body text here.')).toBeInTheDocument();
   });
@@ -754,7 +752,6 @@ describe('MarkdownDiffPreview frontmatter diff', () => {
   it('renders no frontmatter table for stdin (no fetch performed)', async () => {
     renderViewer({ baseCommitish: 'stdin', targetCommitish: 'stdin' });
 
-    // wait a tick so any pending state settles
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledTimes(0);
     });

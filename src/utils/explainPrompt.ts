@@ -1,13 +1,11 @@
 import { type DiffFile, type DiffLine } from '../types/diff';
 
-// ~50k tokens; the server rejects larger payloads and the client disables the
-// Explain button up front at the same threshold.
+// ~50k tokens; the server rejects larger payloads and the client disables the Explain button up front at the same threshold.
 export const EXPLAIN_PROMPT_MAX_BYTES = 200 * 1024;
 
 /** Default explain model; owners override it with DIFFOPS_EXPLAIN_MODEL. */
 export const DEFAULT_EXPLAIN_MODEL = 'anthropic/claude-sonnet-5';
 
-/** Files below this many non-empty lines are not worth a model call. */
 export const MIN_EXPLAINABLE_NON_EMPTY_LINES = 20;
 
 const textEncoder = new TextEncoder();
@@ -47,8 +45,7 @@ const getDiffLinePrefix = (type: DiffLine['type']): string | null => {
   }
 };
 
-// Rebuilds a unified diff from the parsed hunks. Line content is stored
-// prefix-stripped, so +/-/space prefixes are restored here.
+// Rebuilds a unified diff from the parsed hunks: line content is stored prefix-stripped, so +/-/space prefixes are restored here.
 function buildUnifiedDiff(file: DiffFile): string {
   return file.chunks
     .map((chunk) => {
@@ -64,8 +61,7 @@ function buildUnifiedDiff(file: DiffFile): string {
     .join('\n');
 }
 
-// Reconstructs the full new-file content from the hunks of an added file:
-// added and context lines, minus their diff prefixes.
+// Reconstructs the full new-file content from the hunks of an added file: added and context lines, minus their diff prefixes.
 function buildNewFileContent(file: DiffFile): string {
   return file.chunks
     .flatMap((chunk) =>
@@ -154,6 +150,12 @@ const FILE_OUTLINE_INSTRUCTIONS = [
   "- symbols: the file's meaningful named units (functions, methods, classes, hooks,",
   '  components, significant constants) as an outline in the order a reviewer should',
   '  read them. The order carries meaning; source order is irrelevant.',
+  "- isPublic marks whether a symbol is part of the file's public API (exported and",
+  '  reachable from other files) versus private/internal to this file.',
+  '- Focus on the public API: cover exported symbols first and in the most depth.',
+  '  Only give a private symbol its own entry when it earns one — e.g. the public',
+  '  symbol is a thin wrapper around it, or it carries complex business logic a',
+  '  reviewer would otherwise miss.',
   '- Skip trivial or self-explanatory symbols entirely; keep the outline scannable.',
   '- Give most callable symbols a contract: input (what it takes, named by parameter',
   '  or in prose) and output (what it produces) — phrased the way a colleague would',

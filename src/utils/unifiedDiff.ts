@@ -255,8 +255,7 @@ function parseFileBlock(block: string, format: 'git' | 'plain' = 'git'): DiffFil
   const plusLine = lines.find((line) => line.startsWith('+++ '));
   const renameFromLine = lines.find((line) => line.startsWith('rename from '));
   const renameToLine = lines.find((line) => line.startsWith('rename to '));
-  // git prints "Binary files a/x and b/x differ" (or a "GIT binary patch"
-  // section under --binary) instead of hunks for non-text content.
+  // git prints "Binary files a/x and b/x differ" (or a "GIT binary patch" section under --binary) instead of hunks for non-text content.
   const isBinary =
     format === 'git' &&
     lines.some((line) => line.startsWith('Binary files ') || line.startsWith('GIT binary patch'));
@@ -309,7 +308,6 @@ function parseFileBlock(block: string, format: 'git' | 'plain' = 'git'): DiffFil
   };
 }
 
-/** Counts added and deleted lines across every chunk of a parsed file. */
 function countLinesFromChunks(chunks: DiffChunk[]): {
   additions: number;
   deletions: number;

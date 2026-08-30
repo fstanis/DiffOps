@@ -3,8 +3,6 @@ import { defineConfig } from '@playwright/test';
 // E2E smoke for the built PWA against the Bun server (`bun run serve`). The
 // specs are `*.e2e.ts` so `bun test` (which also globs *.spec.ts) never picks
 // them up — Playwright stays a Node tool, independent of the app's toolchain.
-// The webServer chain builds the app, regenerates the engine fixture into
-// dist/pwa/fixture, and serves everything on :4173.
 export default defineConfig({
   testDir: './e2e',
   testMatch: '**/*.e2e.ts',

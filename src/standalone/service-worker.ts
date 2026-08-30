@@ -1,13 +1,11 @@
-// Cache-first shell for the standalone PWA. The app is fully local after the
-// first visit: the shell (HTML + its hashed assets + manifest) is precached
-// on install, and every later same-origin GET is served from the cache with
-// the network only as a fill-in for entries not seen yet — except the
-// network-only routes (see networkOnlyRoutes.ts), which bypass the worker.
+// Cache-first shell for the standalone PWA: precaches the shell on install,
+// then serves same-origin GETs from cache with the network as a fill-in —
+// except the network-only routes (networkOnlyRoutes.ts), which bypass the worker.
 
 import { isNetworkOnlyPath } from './networkOnlyRoutes';
 
 // The workspace tsconfig uses the DOM lib, which has no ServiceWorker types;
-// these narrow declarations cover everything this worker touches.
+// these narrow declarations cover what this worker touches.
 interface ExtendableEvent extends Event {
   waitUntil(promise: Promise<unknown>): void;
 }
@@ -27,17 +25,14 @@ interface ServiceWorkerScope {
 
 const scope = self as unknown as ServiceWorkerScope;
 
-// The build stamps DIFFOPS_BUILD_ID (a hash of the artifacts) into the cache
-// name: any artifact change changes the SW bytes, forcing a reinstall with a
-// fresh precache, and activation drops the previous cache. Without this, a
-// byte-identical SW would keep serving the originally precached shell across
-// builds (stable-named assets like git-worker.js would never refresh).
+// DIFFOPS_BUILD_ID (a hash of the build artifacts) is stamped into the cache
+// name so any artifact change reinstalls the worker with a fresh precache —
+// otherwise a byte-identical SW would keep serving the stale precached shell.
 const BUILD_ID = process.env.DIFFOPS_BUILD_ID ?? 'dev';
 const CACHE_NAME = `diffops-standalone-${BUILD_ID}`;
 const SHELL_URL = './';
 const SHELL_DOCUMENT_URL = './index.html';
-// Not referenced from the shell HTML, so discovery cannot see them: the git
-// engine's worker and its wasm binary (stable, unhashed names by design).
+// Not referenced from the shell HTML, so discovery can't find them — stable, unhashed names by design.
 const ENGINE_ASSET_URLS = ['./git-worker.js', './lg2_workerfs.wasm'];
 
 const openShellCache = (): Promise<Cache> => caches.open(CACHE_NAME);
@@ -53,8 +48,7 @@ const precacheUrl = async (cache: Cache, url: string): Promise<void> => {
   }
 };
 
-// The build hashes asset filenames, so discover them from the shell document
-// instead of hardcoding a list: every ./-relative href/src gets precached.
+// Asset filenames are hashed per build, so discover them from the shell document instead of hardcoding a list.
 const discoverShellAssets = async (cache: Cache): Promise<string[]> => {
   const documentResponse = await cache.match(SHELL_DOCUMENT_URL);
   if (!documentResponse) {
@@ -117,7 +111,7 @@ const cacheFirst = async (request: Request): Promise<Response> => {
     return response;
   } catch (error) {
     if (isNavigation) {
-      return new Response('diffops is offline and this page is not cached yet.', {
+      return new Response('DiffOps is offline and this page is not cached yet.', {
         status: 503,
         headers: { 'Content-Type': 'text/plain; charset=utf-8' },
       });

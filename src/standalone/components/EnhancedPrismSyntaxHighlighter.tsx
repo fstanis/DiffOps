@@ -12,17 +12,8 @@ type EnhancedPrismSyntaxHighlighterProps = Omit<
 >;
 
 /**
- * Syntax highlighter with interactive word highlighting.
- *
- * When hovering over a word in the code, all occurrences of that word
- * are highlighted throughout the visible diff. This helps track variable
- * usage and identify patterns in the code.
- *
- * Features:
- * - Hover delay of 200ms to avoid accidental highlights
- * - Case-insensitive word matching
- * - Filters out single-character words
- * - Preserves original syntax highlighting from Prism
+ * Syntax highlighter that highlights every occurrence of a hovered word across the
+ * visible diff, via WordHighlightContext.
  */
 export const EnhancedPrismSyntaxHighlighter = React.memo(function EnhancedPrismSyntaxHighlighter(
   props: EnhancedPrismSyntaxHighlighterProps,
@@ -40,17 +31,13 @@ export const EnhancedPrismSyntaxHighlighter = React.memo(function EnhancedPrismS
       // Split token content by spaces to handle XML/HTML tags that contain multiple words
       const parts = token.content.split(/( +)/);
 
-      // If only one part and it's not a word, render as-is
       if (parts.length === 1 && parts[0] && !isWordToken(parts[0])) {
         return <span key={key} {...tokenProps} />;
       }
 
-      // Render each part, checking if it's a word
       const renderedParts = parts.map((part, index) => {
-        // Skip empty parts
         if (!part) return null;
 
-        // Check if this part is a word (not spaces or symbols)
         if (isWordToken(part)) {
           const trimmedPart = part.trim();
           const isHighlighted = isWordHighlighted(trimmedPart);
@@ -65,11 +52,9 @@ export const EnhancedPrismSyntaxHighlighter = React.memo(function EnhancedPrismS
           );
         }
 
-        // Not a word, render as plain text
         return <span key={`${key}-${index}`}>{part}</span>;
       });
 
-      // Wrap all parts in a span with the original token props (for syntax highlighting)
       return (
         <span key={key} {...tokenProps}>
           {renderedParts}

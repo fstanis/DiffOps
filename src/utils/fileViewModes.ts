@@ -46,6 +46,6 @@ export function saveFileViewModes(modes: FileViewModesByPath): void {
   try {
     window.localStorage.setItem(FILE_VIEW_MODES_STORAGE_KEY, JSON.stringify(modes));
   } catch {
-    // Ignore localStorage errors (e.g. disabled storage).
+    // ignore
   }
 }

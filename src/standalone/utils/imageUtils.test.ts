@@ -94,10 +94,10 @@ describe('imageUtils', () => {
 
     it('handles edge cases', () => {
       expect(getFileExtension('')).toBe(null);
-      expect(getFileExtension('file')).toBe('file'); // No dot, so whole filename is returned
-      expect(getFileExtension('file.')).toBe(null); // Empty extension becomes null
+      expect(getFileExtension('file')).toBe('file');
+      expect(getFileExtension('file.')).toBe(null);
       expect(getFileExtension('.gitignore')).toBe('gitignore');
-      expect(getFileExtension('.')).toBe(null); // Empty extension becomes null
+      expect(getFileExtension('.')).toBe(null);
     });
   });
 });

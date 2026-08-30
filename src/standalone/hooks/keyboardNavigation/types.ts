@@ -1,8 +1,5 @@
 import type { DiffFile, DiffSide, DiffViewMode, LineNumber } from '../../../types/diff';
 
-/**
- * Represents the current cursor position in the diff viewer
- */
 export interface CursorPosition {
   fileIndex: number;
   chunkIndex: number;
@@ -15,9 +12,6 @@ export interface CursorPosition {
  */
 export type NavigationFilter = (position: CursorPosition, files: DiffFile[]) => boolean;
 
-/**
- * Result of a navigation attempt
- */
 export interface NavigationResult {
   position: CursorPosition | null;
   scrollTarget: string | null;
@@ -29,9 +23,6 @@ export interface CommentNavigationItem {
   side?: DiffSide;
 }
 
-/**
- * Props for the useKeyboardNavigation hook
- */
 export interface UseKeyboardNavigationProps {
   files: DiffFile[];
   comments: CommentNavigationItem[];
@@ -50,9 +41,6 @@ export interface UseKeyboardNavigationProps {
   onScrollToFile?: (filePath: string) => void;
 }
 
-/**
- * Return value of the useKeyboardNavigation hook
- */
 export interface UseKeyboardNavigationReturn {
   cursor: CursorPosition | null;
   isHelpOpen: boolean;
@@ -61,19 +49,10 @@ export interface UseKeyboardNavigationReturn {
   rememberFilePosition: (fileIndex: number) => void;
 }
 
-/**
- * View modes for the diff viewer
- */
 export type ViewMode = DiffViewMode;
 
-/**
- * Navigation direction
- */
 export type NavigationDirection = 'next' | 'prev';
 
-/**
- * Constants for scroll behavior
- */
 export const SCROLL_CONSTANTS = {
   /** Position element at 1/3 from top of viewport */
   VIEWPORT_OFFSET_RATIO: 1 / 3,

@@ -1,9 +1,6 @@
 import { type DiffFile } from '../../types/diff';
 export { getLanguageFromPath } from './languageDetection';
 
-/**
- * Generate SHA-256 hash of diff content
- */
 export async function generateDiffHash(diffContent: string): Promise<string> {
   try {
     const encoder = new TextEncoder();
@@ -12,15 +9,11 @@ export async function generateDiffHash(diffContent: string): Promise<string> {
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
   } catch {
-    // Fallback to simple hash if crypto API is not available
     console.warn('Crypto API not available, using fallback hash');
     return simpleHash(diffContent);
   }
 }
 
-/**
- * Simple hash function as fallback
- */
 function simpleHash(str: string): string {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
@@ -31,11 +24,7 @@ function simpleHash(str: string): string {
   return Math.abs(hash).toString(16);
 }
 
-/**
- * Generate diff content string for hashing
- */
 export function getDiffContentForHashing(file: DiffFile): string {
-  // Create a stable string representation of the diff
   const chunks = file.chunks
     .map((chunk) => {
       const lines = chunk.lines

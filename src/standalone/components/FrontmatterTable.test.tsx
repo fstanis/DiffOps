@@ -85,7 +85,7 @@ describe('FrontmatterTable diff mode', () => {
     );
 
     expect(screen.getByText('title')).toBeInTheDocument();
-    expect(screen.getAllByText('X')).toHaveLength(2); // same value shown in both Before and After
+    expect(screen.getAllByText('X')).toHaveLength(2);
     expect(container.querySelector('.bg-diff-addition-bg')).toBeNull();
     expect(container.querySelector('.bg-diff-deletion-bg')).toBeNull();
   });

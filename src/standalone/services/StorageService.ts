@@ -57,9 +57,6 @@ function normalizeRootComment(thread: DiffCommentThread): LegacyDiffComment | nu
 }
 
 export class StorageService {
-  /**
-   * Generate a filesystem-safe storage key from commitish references
-   */
   private generateStorageKey(
     baseCommitish: string,
     targetCommitish: string,
@@ -86,15 +83,11 @@ export class StorageService {
     return `${STORAGE_KEY_PREFIX}/${key}`;
   }
 
-  /**
-   * Normalize dynamic references like HEAD, branch names, etc.
-   */
   private normalizeCommitish(
     commitish: string,
     currentCommitHash?: string,
     branchToHash?: Map<string, string>,
   ): string {
-    // Handle working directory and staged cases
     if (commitish === '.' || commitish === 'working') {
       return 'WORKING';
     }
@@ -102,12 +95,11 @@ export class StorageService {
       return 'STAGED';
     }
 
-    // Handle HEAD reference (including @ symbol which is git shorthand for HEAD)
+    // @ is git shorthand for HEAD.
     if ((commitish === 'HEAD' || commitish === '@') && currentCommitHash) {
       return currentCommitHash;
     }
 
-    // Try to resolve branch names to hashes
     if (branchToHash?.has(commitish)) {
       const hash = branchToHash.get(commitish);
       if (hash) {
@@ -115,9 +107,7 @@ export class StorageService {
       }
     }
 
-    // IMPORTANT: For commitish like @^, @~1, etc., we cannot normalize without commit hash
-    // These will use the literal string as key, which may cause collision across different commits
-    // Warn if this looks like a symbolic reference that couldn't be resolved
+    // Symbolic refs like @^ or @~1 can't be normalized without a commit hash and may collide across commits; warn when unresolved.
     if (
       commitish.startsWith('@') ||
       commitish.includes('^') ||
@@ -130,13 +120,9 @@ export class StorageService {
       );
     }
 
-    // Return as-is (likely a commit hash or unresolved symbolic ref)
     return commitish;
   }
 
-  /**
-   * Get the full localStorage key for a diff context
-   */
   private getStorageKey(
     baseCommitish: string,
     targetCommitish: string,
@@ -162,9 +148,6 @@ export class StorageService {
     return this.getFullStorageKey(repositoryId, key);
   }
 
-  /**
-   * Get diff context data from localStorage
-   */
   getDiffContextData(
     baseCommitish: string,
     targetCommitish: string,
@@ -242,9 +225,6 @@ export class StorageService {
     return this.normalizeCommitish(targetCommitish, currentCommitHash, branchToHash);
   }
 
-  /**
-   * Save diff context data to localStorage
-   */
   saveDiffContextData(
     baseCommitish: string,
     targetCommitish: string,
@@ -263,7 +243,6 @@ export class StorageService {
         repositoryId,
         baseMode,
       );
-      // Ensure data includes original commitish values
       const dataToSave: DiffContextStorage = {
         ...data,
         version: 2,
@@ -277,16 +256,12 @@ export class StorageService {
     } catch (error) {
       if (error instanceof DOMException && error.name === 'QuotaExceededError') {
         console.error('localStorage quota exceeded');
-        // Could implement cleanup here
       } else {
         console.error('Error saving diff context data:', error);
       }
     }
   }
 
-  /**
-   * Get comment threads for a specific diff context
-   */
   getCommentThreads(
     baseCommitish: string,
     targetCommitish: string,
@@ -329,9 +304,6 @@ export class StorageService {
       .filter((comment): comment is LegacyDiffComment => comment !== null);
   }
 
-  /**
-   * Save comment threads for a specific diff context
-   */
   saveCommentThreads(
     baseCommitish: string,
     targetCommitish: string,
@@ -396,9 +368,6 @@ export class StorageService {
     );
   }
 
-  /**
-   * Get viewed files for a specific diff context
-   */
   getViewedFiles(
     baseCommitish: string,
     targetCommitish: string,
@@ -418,9 +387,6 @@ export class StorageService {
     return data?.viewedFiles || [];
   }
 
-  /**
-   * Save viewed files for a specific diff context
-   */
   saveViewedFiles(
     baseCommitish: string,
     targetCommitish: string,
@@ -462,19 +428,13 @@ export class StorageService {
     );
   }
 
-  /**
-   * Get the localStorage key for the per-repository viewed-hash index.
-   */
   private getViewedHashIndexKey(repositoryId: string | undefined): string {
     return `${VIEWED_INDEX_PREFIX}/${repositoryId ?? DEFAULT_REPO_ID}`;
   }
 
   /**
-   * Get the per-repository index of viewed-hash entries keyed by
-   * `(filePath, diffContentHash)`. Multiple hashes may exist per filePath so
-   * that the same file can keep independent viewed state across different
-   * comparison ranges (e.g. PR A vs PR B that both touch the same file with
-   * different diffs).
+   * Keyed by `(filePath, diffContentHash)`: multiple hashes may exist per filePath so the same
+   * file can keep independent viewed state across different comparison ranges.
    */
   getViewedHashIndex(repositoryId?: string): ViewedHashIndex {
     const empty: ViewedHashIndex = {
@@ -562,9 +522,6 @@ export class StorageService {
     });
   }
 
-  /**
-   * Drop the entire per-repository viewed-hash index.
-   */
   clearViewedHashIndex(repositoryId?: string): void {
     try {
       localStorage.removeItem(this.getViewedHashIndexKey(repositoryId));
@@ -573,9 +530,6 @@ export class StorageService {
     }
   }
 
-  /**
-   * Clean up old data based on days to keep
-   */
   cleanupOldData(daysToKeep: number): void {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
@@ -608,13 +562,9 @@ export class StorageService {
       }
     }
 
-    // Remove old entries
     keysToRemove.forEach((key) => localStorage.removeItem(key));
   }
 
-  /**
-   * Get total storage size used by diffops
-   */
   getStorageSize(): number {
     let totalSize = 0;
 
@@ -634,5 +584,4 @@ export class StorageService {
   }
 }
 
-// Export singleton instance
 export const storageService = new StorageService();

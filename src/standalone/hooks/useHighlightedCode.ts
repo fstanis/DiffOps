@@ -36,27 +36,22 @@ const DEFAULT_LANGUAGES = [
 
 export function useHighlightedCode(_code: string, lang: string) {
   const [ready, setReady] = useState(() => {
-    // Check if language is already available
     return DEFAULT_LANGUAGES.includes(lang) || !!Prism.languages[lang];
   });
 
   useEffect(() => {
-    // If language is already ready, nothing to do
     if (ready) return;
 
-    // If it's a default language, it should be ready
     if (DEFAULT_LANGUAGES.includes(lang)) {
       setReady(true);
       return;
     }
 
-    // Try to load the language dynamically
     loadPrismLanguage(lang)
       .then(() => {
         setReady(true);
       })
       .catch(() => {
-        // Fall back silently - component will use 'text' language
         setReady(false);
       });
   }, [lang, ready]);

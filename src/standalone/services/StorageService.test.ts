@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 
 import { StorageService } from './StorageService';
 
-// Mock localStorage with proper Storage interface
 class LocalStorageMock implements Storage {
   private store: Record<string, string> = {};
 
@@ -31,7 +30,6 @@ class LocalStorageMock implements Storage {
     return keys[index] || null;
   }
 
-  // Helper method to get all keys (for testing)
   get _keys(): string[] {
     return Object.keys(this.store);
   }
@@ -80,11 +78,9 @@ describe('StorageService - Repository Isolation', () => {
         },
       ];
 
-      // Save comments to different repositories
       service.saveComments('base', 'target', comments1, undefined, undefined, 'repo-1');
       service.saveComments('base', 'target', comments2, undefined, undefined, 'repo-2');
 
-      // Retrieve comments for each repository
       const retrievedComments1 = service.getComments(
         'base',
         'target',
@@ -100,7 +96,6 @@ describe('StorageService - Repository Isolation', () => {
         'repo-2',
       );
 
-      // Each repository should only see its own comments
       expect(retrievedComments1.length).toBe(1);
       expect(retrievedComments1[0]?.id).toBe('comment-1');
       expect(retrievedComments2.length).toBe(1);
@@ -124,11 +119,9 @@ describe('StorageService - Repository Isolation', () => {
         },
       ];
 
-      // Save viewed files to different repositories
       service.saveViewedFiles('base', 'target', viewedFiles1, undefined, undefined, 'repo-1');
       service.saveViewedFiles('base', 'target', viewedFiles2, undefined, undefined, 'repo-2');
 
-      // Retrieve viewed files for each repository
       const retrievedFiles1 = service.getViewedFiles(
         'base',
         'target',
@@ -144,7 +137,6 @@ describe('StorageService - Repository Isolation', () => {
         'repo-2',
       );
 
-      // Each repository should only see its own viewed files
       expect(retrievedFiles1.length).toBe(1);
       expect(retrievedFiles1[0]?.filePath).toBe('file1.ts');
       expect(retrievedFiles2.length).toBe(1);
@@ -163,10 +155,8 @@ describe('StorageService - Repository Isolation', () => {
         },
       ];
 
-      // Save without repositoryId
       service.saveComments('base', 'target', comments);
 
-      // Should be able to retrieve without repositoryId
       const retrieved = service.getComments('base', 'target');
       expect(retrieved.length).toBe(1);
       expect(retrieved[0]?.id).toBe('comment-1');
@@ -184,14 +174,11 @@ describe('StorageService - Repository Isolation', () => {
         },
       ];
 
-      // Save comments for working diff in repo 1
       service.saveComments('HEAD', 'working', comments, 'abc123', undefined, 'repo-1');
 
-      // Try to retrieve from repo 2 - should get empty array
       const retrieved = service.getComments('HEAD', 'working', 'abc123', undefined, 'repo-2');
       expect(retrieved.length).toBe(0);
 
-      // Retrieve from repo 1 - should get the comment
       const retrieved1 = service.getComments('HEAD', 'working', 'abc123', undefined, 'repo-1');
       expect(retrieved1.length).toBe(1);
       expect(retrieved1[0]?.id).toBe('working-comment');

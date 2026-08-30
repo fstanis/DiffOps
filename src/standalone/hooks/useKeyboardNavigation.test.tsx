@@ -8,12 +8,10 @@ import type { DiffFile } from '../../types/diff';
 
 import { useKeyboardNavigation } from './useKeyboardNavigation';
 
-// Mock scrollIntoView and getElementById
 Element.prototype.scrollIntoView = vi.fn();
 const mockGetElementById = vi.spyOn(document, 'getElementById');
 const mockQuerySelector = vi.spyOn(document, 'querySelector');
 
-// Mock window properties
 Object.defineProperty(window, 'innerHeight', {
   writable: true,
   configurable: true,
@@ -28,7 +26,6 @@ Object.defineProperty(window, 'pageYOffset', {
 
 window.scrollTo = vi.fn();
 
-// Helper to create mock elements
 const createMockElement = () => ({
   scrollIntoView: vi.fn(),
   getBoundingClientRect: vi.fn(() => ({
@@ -42,7 +39,6 @@ const createMockElement = () => ({
   offsetTop: 150,
 });
 
-// Helper to create mock scrollable container
 const createMockScrollContainer = () => ({
   getBoundingClientRect: vi.fn(() => ({
     top: 0,
@@ -57,7 +53,6 @@ const createMockScrollContainer = () => ({
   clientHeight: 768,
 });
 
-// Sample diff data for testing
 const mockFiles: DiffFile[] = [
   {
     path: 'file1.js',
@@ -116,7 +111,6 @@ const mockFiles: DiffFile[] = [
   },
 ];
 
-// Wrapper component - using the mocked HotkeysProvider
 const wrapper = ({ children }: { children: React.ReactNode }) => (
   <HotkeysProvider initiallyActiveScopes={['navigation']}>{children}</HotkeysProvider>
 );
@@ -198,7 +192,6 @@ describe('useKeyboardNavigation', () => {
         { wrapper },
       );
 
-      // First set cursor to a line
       act(() => {
         result.current.setCursorPosition({
           fileIndex: 0,
@@ -236,10 +229,8 @@ describe('useKeyboardNavigation', () => {
 
       await user.keyboard('{\\]}');
 
-      // After navigating to file, cursor should be set
       expect(result.current.cursor).not.toBeNull();
-      // When starting from null cursor, ] navigates to the first valid position
-      // which could be fileIndex 0 or 1 depending on filter implementation
+      // From a null cursor, ] may land on fileIndex 0 or 1 depending on the filter.
       expect(result.current.cursor?.fileIndex).toBeGreaterThanOrEqual(0);
       expect(result.current.cursor?.fileIndex).toBeLessThan(mockFiles.length);
     });
@@ -258,7 +249,6 @@ describe('useKeyboardNavigation', () => {
         { wrapper },
       );
 
-      // Set cursor to second file
       act(() => {
         result.current.setCursorPosition({
           fileIndex: 1,
@@ -287,7 +277,6 @@ describe('useKeyboardNavigation', () => {
         { wrapper },
       );
 
-      // Set cursor to second file
       act(() => {
         result.current.setCursorPosition({
           fileIndex: 1,
@@ -318,7 +307,6 @@ describe('useKeyboardNavigation', () => {
         { wrapper },
       );
 
-      // Set cursor to first file
       act(() => {
         result.current.setCursorPosition({
           fileIndex: 0,
@@ -337,8 +325,7 @@ describe('useKeyboardNavigation', () => {
   });
 
   describe('Narrated order', () => {
-    // Narrated view reorders the files array; the cursor must follow that
-    // array, so git-order neighbors are irrelevant.
+    // Narrated view reorders the files array; the cursor follows that array, not git order.
     const narratedFiles = [mockFiles[1]!, mockFiles[0]!];
 
     it('steps next/prev file through the narrated order', async () => {
@@ -495,7 +482,6 @@ describe('useKeyboardNavigation', () => {
 
       await user.keyboard('n');
 
-      // Should navigate to the first changed line
       expect(result.current.cursor).not.toBeNull();
     });
 
@@ -514,11 +500,8 @@ describe('useKeyboardNavigation', () => {
         { wrapper },
       );
 
-      // First navigate to a chunk
       await user.keyboard('n');
       await user.keyboard('n');
-
-      // Then navigate back
       await user.keyboard('p');
 
       expect(result.current.cursor).not.toBeNull();
@@ -543,8 +526,7 @@ describe('useKeyboardNavigation', () => {
 
       await user.keyboard('j');
 
-      // The first line of file1 is a deletion, which has no row in current
-      // mode, so navigation lands on the added line
+      // file1's first line is a deletion, which has no row in current mode, so this lands on the added line.
       expect(result.current.cursor).toEqual({
         fileIndex: 0,
         chunkIndex: 0,
@@ -570,7 +552,7 @@ describe('useKeyboardNavigation', () => {
 
       await user.keyboard('n');
 
-      // The add line following the deleted line is the first visible change
+      // The add line following the deleted line is the first visible change.
       expect(result.current.cursor).toEqual({
         fileIndex: 0,
         chunkIndex: 0,
@@ -580,7 +562,7 @@ describe('useKeyboardNavigation', () => {
 
       await user.keyboard('n');
 
-      // Next changed region is the added line in file2
+      // Next changed region is the added line in file2.
       expect(result.current.cursor).toEqual({
         fileIndex: 1,
         chunkIndex: 0,
@@ -624,7 +606,6 @@ describe('useKeyboardNavigation', () => {
 
       await user.keyboard('{Shift>}n{/Shift}');
 
-      // Should navigate to the first comment
       expect(result.current.cursor).not.toBeNull();
     });
 
@@ -695,11 +676,8 @@ describe('useKeyboardNavigation', () => {
         { wrapper },
       );
 
-      // Navigate to second comment first
       await user.keyboard('{Shift>}n{/Shift}');
       await user.keyboard('{Shift>}n{/Shift}');
-
-      // Then navigate back
       await user.keyboard('{Shift>}p{/Shift}');
 
       expect(result.current.cursor).not.toBeNull();
@@ -754,9 +732,8 @@ describe('useKeyboardNavigation', () => {
 
       expect(result.current.isHelpOpen).toBe(false);
 
-      // ? is Shift + / on US keyboard
+      // ? is Shift + / on a US keyboard layout.
       await user.keyboard('{Shift>}?{/Shift}');
-      // await user.keyboard('[ShiftLeft>][Slash]');
 
       expect(result.current.isHelpOpen).toBe(true);
     });
@@ -805,7 +782,6 @@ describe('useKeyboardNavigation', () => {
         { wrapper },
       );
 
-      // Set cursor first
       act(() => {
         result.current.setCursorPosition({
           fileIndex: 0,
@@ -1006,7 +982,7 @@ describe('useKeyboardNavigation', () => {
         { wrapper },
       );
 
-      // Navigate to a position, then clear the cursor (as a mouse click does)
+      // setCursorPosition(null) mimics what a mouse click does to the cursor.
       act(() => {
         result.current.setCursorPosition({
           fileIndex: 0,
@@ -1023,7 +999,7 @@ describe('useKeyboardNavigation', () => {
 
       await user.keyboard('{\\]}');
 
-      // Should move to the file after the remembered position, not wrap to the end
+      // Moves to the file after the remembered position rather than wrapping to the end.
       expect(result.current.cursor?.fileIndex).toBe(1);
     });
 
@@ -1046,10 +1022,8 @@ describe('useKeyboardNavigation', () => {
         result.current.rememberFilePosition(0);
       });
 
-      // No visible cursor appears for a mouse interaction
       expect(result.current.cursor).toBeNull();
 
-      // But keyboard navigation resumes from the remembered file
       await user.keyboard('{\\]}');
       expect(result.current.cursor?.fileIndex).toBe(1);
     });
@@ -1093,7 +1067,6 @@ describe('useKeyboardNavigation', () => {
         { wrapper },
       );
 
-      // Should not throw error: a rejection fails the test.
       await user.keyboard('r');
     });
   });
@@ -1116,7 +1089,6 @@ describe('useKeyboardNavigation', () => {
         { wrapper },
       );
 
-      // Navigate to a normal line
       act(() => {
         result.current.setCursorPosition({
           fileIndex: 0,
@@ -1148,7 +1120,6 @@ describe('useKeyboardNavigation', () => {
         { wrapper },
       );
 
-      // Navigate to a delete line
       act(() => {
         result.current.setCursorPosition({
           fileIndex: 0,
@@ -1180,7 +1151,6 @@ describe('useKeyboardNavigation', () => {
         { wrapper },
       );
 
-      // Set cursor to right side
       act(() => {
         result.current.setCursorPosition({
           fileIndex: 0,
@@ -1210,7 +1180,6 @@ describe('useKeyboardNavigation', () => {
         { wrapper },
       );
 
-      // Set cursor to left side
       act(() => {
         result.current.setCursorPosition({
           fileIndex: 0,
@@ -1241,7 +1210,6 @@ describe('useKeyboardNavigation', () => {
         { wrapper },
       );
 
-      // Mock multiple elements at different positions
       const elements = [
         { id: 'file-0-chunk-0-line-0', top: 100, bottom: 150 },
         { id: 'file-0-chunk-0-line-1', top: 300, bottom: 350 },
@@ -1265,7 +1233,6 @@ describe('useKeyboardNavigation', () => {
 
       await user.keyboard('{.}');
 
-      // Should set cursor
       expect(result.current.cursor).not.toBeNull();
     });
   });
@@ -1284,8 +1251,6 @@ describe('useKeyboardNavigation', () => {
         { wrapper },
       );
 
-      // Test should pass as long as no errors are thrown
-      // The actual scope management is handled by modal components
       expect(result.current.cursor).toBeNull();
     });
   });
@@ -1295,7 +1260,6 @@ describe('useKeyboardNavigation', () => {
       const user = userEvent.setup();
       const onToggleReviewed = vi.fn();
 
-      // Create an input element
       const input = document.createElement('input');
       document.body.appendChild(input);
       input.focus();
@@ -1312,14 +1276,11 @@ describe('useKeyboardNavigation', () => {
         { wrapper },
       );
 
-      // Type in the input
       await user.keyboard('j');
       await user.keyboard('r');
 
-      // Hotkeys should not be triggered
       expect(onToggleReviewed).not.toHaveBeenCalled();
 
-      // Cleanup
       document.body.removeChild(input);
     });
 
@@ -1327,7 +1288,6 @@ describe('useKeyboardNavigation', () => {
       const user = userEvent.setup();
       const onToggleReviewed = vi.fn();
 
-      // Create a textarea element
       const textarea = document.createElement('textarea');
       document.body.appendChild(textarea);
       textarea.focus();
@@ -1344,14 +1304,11 @@ describe('useKeyboardNavigation', () => {
         { wrapper },
       );
 
-      // Type in the textarea
       await user.keyboard('j');
       await user.keyboard('r');
 
-      // Hotkeys should not be triggered
       expect(onToggleReviewed).not.toHaveBeenCalled();
 
-      // Cleanup
       document.body.removeChild(textarea);
     });
   });
@@ -1397,7 +1354,6 @@ describe('useKeyboardNavigation', () => {
         { wrapper },
       );
 
-      // Try to set cursor on a delete line with right side
       const position = {
         fileIndex: 0,
         chunkIndex: 0,
@@ -1409,7 +1365,7 @@ describe('useKeyboardNavigation', () => {
         result.current.setCursorPosition(position);
       });
 
-      // Should fix to left side since delete lines only have content on left
+      // Fixed to left side since delete lines only have content on the left.
       expect(result.current.cursor).toEqual({
         ...position,
         side: 'left',

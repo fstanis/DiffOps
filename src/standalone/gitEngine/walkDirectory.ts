@@ -42,8 +42,7 @@ export interface WalkResult {
 const PROGRESS_INTERVAL_MS = 100;
 
 /**
- * Recursively walks a directory handle into repo-relative file entries. Every
- * file's File handle is taken eagerly so the WORKERFS mount sees a
+ * Every file's File handle is taken eagerly so the WORKERFS mount sees a
  * point-in-time snapshot. Entries are read concurrently — a serial
  * await-per-file walk makes huge worktrees (100k+ files) take minutes, while
  * pipelined getFile calls are bounded only by the browser's file-system
@@ -107,7 +106,7 @@ export const walkDirectoryHandle = async (
 
 export type PermissionName = 'granted' | 'denied' | 'prompt';
 
-/** Reads whether a stored handle may still be read, defaulting to "prompt". */
+/** Reads whether a stored handle may still be read, defaulting to "granted". */
 export const queryReadPermission = async (
   handle: PickedDirectoryHandle,
 ): Promise<PermissionName> => {

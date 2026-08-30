@@ -1,6 +1,4 @@
-// Client access to the server-persisted user settings (~/.diffops/config.json).
-// localStorage stays as the synchronous cache and as the only store when no
-// API server is available (e.g. the static demo site).
+// Client access to server-persisted user settings (~/.diffops/config.json); localStorage is the synchronous cache and the only store when no API server exists (e.g. the static demo site).
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);

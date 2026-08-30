@@ -233,7 +233,6 @@ describe('CommentThreadCard', () => {
 
     await user.click(screen.getByRole('button', { name: 'Collapse thread' }));
 
-    // Messages and actions are hidden; a one-line summary with the count remains
     expect(screen.queryByText('Reply comment')).not.toBeInTheDocument();
     expect(screen.queryByText(/Copy Prompt/)).not.toBeInTheDocument();
     expect(screen.queryByTitle('Resolve thread')).not.toBeInTheDocument();
@@ -359,7 +358,6 @@ describe('CommentThreadCard', () => {
     await user.click(screen.getByRole('button', { name: 'Reply' }));
 
     expect(onReplyToThread).toHaveBeenCalledWith('thread-1', 'A new reply');
-    // Collapses back to the trigger after submitting
     expect(screen.getByRole('button', { name: 'Write a reply...' })).toBeInTheDocument();
   });
 

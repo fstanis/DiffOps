@@ -14,8 +14,7 @@ import { useViewport } from './hooks/useViewport';
 import { DEFAULT_AI_SETTINGS } from './hooks/useAiSettings';
 import { buildChangesetFingerprint } from './utils/narrationFingerprint';
 
-// The AI gateway is the app's only outbound network call; everything else the
-// app fetches goes through the global fetch mock.
+// The AI gateway is the app's only outbound network call; everything else the app fetches goes through the global fetch mock.
 const generateNarration = vi.fn<() => Promise<Narration>>();
 const generateFileExplanation = vi.fn();
 vi.mock('./services/aiGateway', () => ({ generateNarration, generateFileExplanation }));
@@ -28,12 +27,10 @@ const enableAiSettings = () => {
   );
 };
 
-// Mock the useViewport hook
 vi.mock('./hooks/useViewport', () => ({
   useViewport: vi.fn(() => ({ isMobile: false, isDesktop: true })),
 }));
 
-// Mock the useDiffComments hook
 vi.mock('./hooks/useDiffComments', () => ({
   useDiffComments: vi.fn(() => ({
     hasLoadedComments: true,
@@ -56,7 +53,6 @@ vi.mock('./hooks/useDiffComments', () => ({
   })),
 }));
 
-// Mock the useViewedFiles hook
 const mockClearViewedFiles = vi.fn();
 const mockToggleFileViewed = vi.fn();
 let mockViewedFiles = new Set<string>();
@@ -84,13 +80,11 @@ vi.mock('./bridgeEvents', () => ({
   }),
 }));
 
-// Mock navigator.sendBeacon
 Object.defineProperty(navigator, 'sendBeacon', {
   writable: true,
   value: vi.fn(),
 });
 
-// Mock window.confirm
 const mockConfirm = vi.fn();
 Object.defineProperty(window, 'confirm', {
   writable: true,
@@ -135,7 +129,6 @@ function createMockThread({
   };
 }
 
-// Helper to render App with HotkeysProvider
 const renderApp = () => {
   return render(
     <HotkeysProvider initiallyActiveScopes={['navigation']}>
@@ -186,8 +179,7 @@ describe('App Component - Clear Comments Functionality', () => {
 
   it('enables the per-file Explain button once an API key is configured', async () => {
     enableAiSettings();
-    // An added file carries its whole content in the hunks, so explain can
-    // gate on it without any blob fetch.
+    // An added file carries its whole content in the hunks, so explain can gate on it without any blob fetch.
     const diffWithContent: DiffResponse = {
       ...mockDiffResponse,
       files: [
@@ -270,7 +262,6 @@ describe('App Component - Clear Comments Functionality', () => {
       renderApp();
 
       await waitFor(() => {
-        // Cleanup All Prompt should not be visible without comments (dropdown doesn't exist)
         expect(screen.queryByText('Copy All Prompt')).not.toBeInTheDocument();
         expect(screen.queryByText('Cleanup All Prompt')).not.toBeInTheDocument();
       });
@@ -284,7 +275,6 @@ describe('App Component - Clear Comments Functionality', () => {
       renderApp();
 
       await waitFor(() => {
-        // Find and click the dropdown toggle button (chevron)
         const dropdownToggle = screen.getByTitle('More options');
         fireEvent.click(dropdownToggle);
       });
@@ -303,7 +293,6 @@ describe('App Component - Clear Comments Functionality', () => {
       renderApp();
 
       await waitFor(() => {
-        // First, open the dropdown
         const dropdownToggle = screen.getByTitle('More options');
         fireEvent.click(dropdownToggle);
       });
@@ -368,7 +357,6 @@ describe('App Component - Clear Comments Functionality', () => {
     it('should not clear comments when clearComments flag is undefined', async () => {
       const responseWithoutFlag: DiffResponse = {
         ...mockDiffResponse,
-        // clearComments is undefined
       };
 
       mockFetch(responseWithoutFlag);
@@ -1280,15 +1268,12 @@ describe('App Component - Mobile sidebar auto-close', () => {
     mockFetch(mockDiffResponse);
     renderApp();
 
-    // Sidebar toggle button
     const toggleButton = await screen.findByRole('button', { name: /toggle file tree panel/i });
     expect(toggleButton).toHaveAttribute('aria-expanded', 'true');
 
-    // Wait for file list to render, then click the file row
     const fileRow = await screen.findByTitle('test.ts');
     fireEvent.click(fileRow.closest('[data-file-row]')!);
 
-    // Sidebar should now be closed on mobile
     await waitFor(() => {
       expect(toggleButton).toHaveAttribute('aria-expanded', 'false');
     });
@@ -1428,8 +1413,7 @@ describe('App Component - Narrated review', () => {
   });
 
   it('renders the narrated sections above the target when jumping files with the keyboard', async () => {
-    // Git order f0..f9; the narrated order swaps the last two so f9 precedes
-    // f8 in the document while sitting beyond the initial render window.
+    // Git order f0..f9; the narrated order swaps the last two so f9 precedes f8 in the document while sitting beyond the initial render window.
     const files = Array.from({ length: 10 }, (_, index) => ({
       path: `f${index}.ts`,
       status: 'modified' as const,
@@ -1470,8 +1454,7 @@ describe('App Component - Narrated review', () => {
     });
     expect(screen.getAllByText('Deferred Rendering')).toHaveLength(2);
 
-    // happy-dom reports Shift+BracketRight as key "]", so the browser-accurate
-    // "}" key is dispatched directly for the jump-to-last-file hotkey.
+    // happy-dom reports Shift+BracketRight as key "]", so the browser-accurate "}" key is dispatched directly.
     fireEvent.keyDown(document, { key: '}', code: 'BracketRight', shiftKey: true });
 
     await waitFor(() => {
@@ -1627,8 +1610,7 @@ describe('App Component - Narrated review', () => {
   });
 
   it('disables the toggle with a size refusal when the changeset exceeds the narrate cap', async () => {
-    // The large file sits past the initial render window so the test never
-    // renders its lines; only its prompt size matters.
+    // The large file sits past the initial render window so the test never renders its lines; only its prompt size matters.
     const smallFiles = Array.from({ length: 8 }, (_, index) => ({
       path: `f${index}.ts`,
       status: 'modified' as const,

@@ -1,13 +1,6 @@
 import type { CommentThread, DiffFile, DiffSide } from '../../../types/diff';
 import type { CursorPosition } from '../../hooks/keyboardNavigation/types';
 
-/**
- * Finds the position of a specific line number within a file's diff chunks
- * @param file The diff file to search in
- * @param fileIndex The index of the file in the files array
- * @param targetLineNumber The line number to find
- * @returns The cursor position including file, chunk, and line indices, or null if not found
- */
 function findLinePosition(
   file: DiffFile,
   fileIndex: number,
@@ -48,12 +41,6 @@ function findLinePosition(
   return null;
 }
 
-/**
- * Finds the cursor position for a specific comment within the diff files
- * @param comment The comment to find the position for
- * @param files The array of diff files to search in
- * @returns The cursor position including file, chunk, and line indices, or null if not found
- */
 export function findCommentPosition(
   commentThread: CommentThread,
   files: DiffFile[],

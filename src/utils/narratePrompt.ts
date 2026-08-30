@@ -1,9 +1,7 @@
 import { type DiffFile } from '../types/diff';
 import { buildFileSection, formatChangedFileList } from './explainPrompt';
 
-// Whole-changeset budget (~250k tokens), deliberately larger than explain's
-// per-file cap; the server rejects larger payloads and the client disables the
-// narrated-view toggle up front at the same threshold.
+// Whole-changeset budget (~250k tokens), deliberately larger than explain's per-file cap; the server rejects larger payloads and the client disables the narrated-view toggle up front at the same threshold.
 export const NARRATE_PROMPT_MAX_BYTES = 1024 * 1024;
 
 /** Default narration model; owners override it with DIFFOPS_NARRATE_MODEL. */

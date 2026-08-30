@@ -1,11 +1,7 @@
-// In-browser smoke test for the standalone git engine. It loads a generated
-// fixture repository over HTTP (scripts/make-engine-fixture-repo.mjs, served
-// at /fixture/ because the build wipes dist/pwa — regenerate after every
-// build), mounts it through the production git worker and GitEngine — the
-// exact code path the app uses after a directory pick — and compares every
-// result against expectations the real git CLI computed when the fixture was
-// generated. Run: bun run build && bun run fixture:engine && bun run serve,
-// then open http://localhost:4173/engine-check.html.
+// In-browser smoke test for the standalone git engine. Run: bun run build &&
+// bun run fixture:engine && bun run serve, then open
+// http://localhost:4173/engine-check.html. Regenerate the fixture after every
+// build — the build wipes dist/pwa.
 import { GitEngine } from './gitEngine/gitEngine';
 import { createWorkerGitClient } from './gitEngine/gitWorkerClient';
 import type { WalkedFile } from './gitEngine/walkDirectory';
@@ -109,8 +105,7 @@ const formatValue = (value: unknown): string => {
   }
 };
 
-// Page-console visibility: the IAB exposes no console to automation. The
-// IAB's own RUM monitoring floods console.warn, so those lines stay console-only.
+// IAB exposes no console to automation; its RUM monitoring floods console.warn, so those lines stay console-only.
 const isInjectedTelemetryLine = (line: string): boolean => /RUM|ArmsEventBridge/.test(line);
 
 const patchConsole = (method: 'log' | 'warn' | 'error'): void => {
@@ -422,8 +417,7 @@ void (async () => {
           revisions.commits[0]?.hash === expected.headHash,
           `HEAD after refresh is ${revisions.commits[0]?.hash}, expected ${expected.headHash}`,
         );
-        // Explicit base/target: a bare call would serve the sticky selection
-        // left by the earlier whitespace check, not the working diff.
+        // Explicit base/target avoids the sticky selection left by the earlier whitespace check.
         const diff = await engine.diff({ base: 'HEAD', target: '.' }, true);
         expect(
           diff.files.length === expected.workingChangedFiles,

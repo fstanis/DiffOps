@@ -6,10 +6,8 @@ import { WordHighlightProvider } from '../contexts/WordHighlightContext';
 
 import { EnhancedPrismSyntaxHighlighter } from './EnhancedPrismSyntaxHighlighter';
 
-// Mock PrismSyntaxHighlighter
 vi.mock('./PrismSyntaxHighlighter', () => ({
   PrismSyntaxHighlighter: ({ code, className, renderToken, onMouseOver, onMouseOut }: any) => {
-    // For tests, create tokens that may contain multiple words (like XML/HTML tags)
     const tokens = [{ content: code, types: ['test-token'] }];
     return (
       <span className={className} onMouseOver={onMouseOver} onMouseOut={onMouseOut}>
@@ -26,7 +24,6 @@ vi.mock('./PrismSyntaxHighlighter', () => ({
   setCurrentFilename: vi.fn(),
 }));
 
-// Mock useWordHighlight
 const mockUseWordHighlight = vi.fn();
 vi.mock('../contexts/WordHighlightContext', () => ({
   WordHighlightProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -82,7 +79,7 @@ describe('EnhancedPrismSyntaxHighlighter', () => {
     );
 
     const highlightedWords = container.querySelectorAll('.word-highlight');
-    expect(highlightedWords).toHaveLength(2); // Both "hello" and "Hello"
+    expect(highlightedWords).toHaveLength(2);
   });
 
   it('should call handleMouseOver when hovering a word', () => {
@@ -148,7 +145,7 @@ describe('EnhancedPrismSyntaxHighlighter', () => {
     );
 
     const wordTokens = container.querySelectorAll('.word-token');
-    expect(wordTokens).toHaveLength(0); // No symbols should be marked as word tokens
+    expect(wordTokens).toHaveLength(0);
   });
 
   it('should handle XML/HTML-like tokens with multiple words', () => {
@@ -159,7 +156,7 @@ describe('EnhancedPrismSyntaxHighlighter', () => {
     );
 
     const wordTokens = container.querySelectorAll('.word-token');
-    expect(wordTokens).toHaveLength(2); // Should detect both words
+    expect(wordTokens).toHaveLength(2);
     expect(wordTokens[0]).toHaveTextContent('EnhancedPrismSyntaxHighlighter');
     expect(wordTokens[1]).toHaveTextContent('code');
   });

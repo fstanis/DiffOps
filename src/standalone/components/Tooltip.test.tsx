@@ -24,8 +24,7 @@ describe('Tooltip', () => {
 
     fireEvent.mouseLeave(trigger);
 
-    // The tooltip unmounts after its 120 ms close transition; bun's waitFor
-    // re-polling can outpace that transition, so hand it the time first.
+    // bun's waitFor can outpace the tooltip's 120ms close transition; wait it out first.
     await new Promise((resolve) => {
       setTimeout(resolve, TOOLTIP_CLOSE_GRACE_MS);
     });

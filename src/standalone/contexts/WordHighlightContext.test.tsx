@@ -38,18 +38,15 @@ describe('WordHighlightContext', () => {
       result.current.handleMouseOver(mockEvent);
     });
 
-    // Word should not be highlighted immediately
     expect(result.current.highlightedWord).toBeNull();
 
-    // Fast forward past the delay
     act(() => {
       vi.advanceTimersByTime(200);
     });
 
-    // Word should now be highlighted
     expect(result.current.highlightedWord).toBe('hello');
     expect(result.current.isWordHighlighted('hello')).toBe(true);
-    expect(result.current.isWordHighlighted('HELLO')).toBe(true); // Case insensitive
+    expect(result.current.isWordHighlighted('HELLO')).toBe(true);
   });
 
   it('should clear highlight on mouse out', () => {
@@ -90,17 +87,14 @@ describe('WordHighlightContext', () => {
       result.current.handleMouseOver(mockEvent);
     });
 
-    // Mouse out before delay
     act(() => {
       result.current.handleMouseOut();
     });
 
-    // Fast forward past the delay
     act(() => {
       vi.advanceTimersByTime(200);
     });
 
-    // Word should not be highlighted
     expect(result.current.highlightedWord).toBeNull();
   });
 
@@ -154,7 +148,6 @@ describe('WordHighlightContext', () => {
       },
     } as unknown as React.MouseEvent;
 
-    // Hover over first word
     act(() => {
       result.current.handleMouseOver(mockEvent1);
       vi.advanceTimersByTime(200);
@@ -162,7 +155,6 @@ describe('WordHighlightContext', () => {
 
     expect(result.current.highlightedWord).toBe('hello');
 
-    // Move to second word
     act(() => {
       result.current.handleMouseOver(mockEvent2);
       vi.advanceTimersByTime(200);

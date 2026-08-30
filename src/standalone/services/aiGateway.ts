@@ -1,7 +1,4 @@
-// The app's only outbound AI surface: schema-constrained generation against
-// Vercel's AI Gateway, called straight from the browser with the key the user
-// entered in Settings. The gateway answers cross-origin requests, so there is
-// no server in this path.
+// Only outbound AI surface: calls Vercel's AI Gateway directly from the browser, since the gateway answers cross-origin requests and needs no server in this path.
 import {
   createGateway,
   generateObject,
@@ -12,8 +9,7 @@ import {
 
 import type { FileExplanation, Narration } from '../../types/diff';
 
-// Anthropic models must be served through the Google Vertex AI deployment;
-// `only` fails the request outright rather than falling back to another route.
+// Anthropic models must route through the Vertex AI deployment; `only` fails outright rather than falling back to another route.
 const VERTEX_ANTHROPIC_ONLY = { gateway: { only: ['vertexAnthropic'] } };
 
 /** The model handle plus the provider routing the model id implies. */
@@ -21,8 +17,7 @@ const resolveModel = (
   model: string,
   apiKey: string,
 ): { model: LanguageModel; providerOptions?: typeof VERTEX_ANTHROPIC_ONLY } => ({
-  // A bare model-id string would resolve through the SDK's global registry,
-  // which reads the API key from the environment the browser does not have.
+  // A bare model-id string would resolve via the SDK's global registry, which reads the API key from an environment the browser does not have.
   model: createGateway({ apiKey }).languageModel(model),
   ...(model.startsWith('anthropic/') ? { providerOptions: VERTEX_ANTHROPIC_ONLY } : {}),
 });
@@ -31,12 +26,13 @@ const EXPLANATION_SYMBOLS_SCHEMA: JSONSchema7 = {
   type: 'array',
   items: {
     type: 'object',
-    required: ['name', 'type', 'summary'],
+    required: ['name', 'type', 'summary', 'isPublic'],
     additionalProperties: false,
     properties: {
       name: { type: 'string' },
       type: { type: 'string', enum: ['function', 'method', 'class', 'constant', 'other'] },
       summary: { type: 'string' },
+      isPublic: { type: 'boolean' },
       contract: {
         type: 'object',
         required: ['input', 'output'],

@@ -182,8 +182,7 @@ describe('StandaloneApp', () => {
       target: { files: [importFile] },
     });
 
-    // The bridge broadcasts commentsChanged; the viewer refetches and the
-    // header's comments affordance reflects the imported thread.
+    // The bridge broadcasts commentsChanged; the viewer refetches and the header's comments affordance reflects the imported thread.
     await waitFor(() => {
       expect(screen.getByText('Copy All Prompt (1)')).toBeInTheDocument();
     });
@@ -364,9 +363,7 @@ describe('StandaloneApp repository mode', () => {
   });
 
   it('clears the preparing overlay even when persistence never settles', async () => {
-    // A blocked IndexedDB upgrade (another tab holding the old database
-    // version) leaves the open pending forever; recording the last repo is
-    // best-effort and must not keep the app "preparing".
+    // A blocked IndexedDB upgrade leaves the open pending forever; recording the last repo is best-effort and must not keep the app "preparing".
     const hangingRequest: {
       onupgradeneeded: (() => void) | null;
       onsuccess: (() => void) | null;
@@ -426,9 +423,7 @@ describe('StandaloneApp repository mode', () => {
 
     const banner = await screen.findByTestId('warning-banner');
     expect(banner.textContent).toContain('symlink');
-    // The file surfaces in both the sidebar and the diff header; a re-render
-    // right after mount can detach whichever node resolves first, so assert
-    // on the match count instead of a single element.
+    // The file surfaces in both the sidebar and the diff header; a re-render right after mount can detach whichever node resolves first, so assert on the match count instead of a single element.
     expect((await screen.findAllByText('src/repo.ts')).length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss warning' }));

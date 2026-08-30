@@ -2,10 +2,7 @@ import { type DiffFile } from '../../types/diff';
 import { getDiffContentForHashing } from './diffUtils';
 import { hashString } from './narrationFingerprint';
 
-/**
- * Fingerprints one file's change so a cached whole-file explanation is
- * invalidated when either the commit label or the file's diff moves.
- */
+/** Invalidates a cached explanation when the commit label or the file's diff changes. */
 export function buildFileExplanationFingerprint(commitLabel: string, file: DiffFile): string {
   return hashString(
     JSON.stringify({

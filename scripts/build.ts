@@ -1,14 +1,14 @@
 #!/usr/bin/env bun
-// Builds the standalone PWA into dist/pwa. Two Bun.build calls: one bundles
-// the whole graph (app shell, engine-check page, git worker, stylesheet,
-// manifest, install favicons), and a second builds the service worker — its
-// cache name embeds a hash of every other artifact, so it cannot join the
-// first. The wasm engine and install icons stay outside the bundle graph:
-// both keep stable unhashed names the service worker precaches.
+// Two Bun.build calls: one bundles the whole graph (app shell, engine-check
+// page, git worker, stylesheet, manifest, install favicons), and a second
+// builds the service worker — its cache name embeds a hash of every other
+// artifact, so it cannot join the first. The wasm engine and install icons
+// stay outside the bundle graph: both keep stable unhashed names the service
+// worker precaches.
 //
 // `--watch` adds the dev loop: rebuild on change and serve dist/pwa on :3000.
-// It deliberately serves the production artifact instead of Bun's HTML dev
-// server, which serves nothing statically and hands modules a bun://
+// It serves the production artifact instead of Bun's HTML dev server, which
+// serves nothing statically and hands modules a bun://
 // import.meta.url that breaks the git worker.
 import { existsSync } from 'node:fs';
 import { cp, readFile, readdir, rm } from 'node:fs/promises';

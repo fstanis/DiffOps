@@ -4,7 +4,6 @@ export const NARRATION_LINK_PREFIX = '#narrate:';
 export const buildNarrationPathHref = (path: string): string =>
   `${NARRATION_LINK_PREFIX}${encodeURIComponent(path)}`;
 
-/** Decodes a narration cross-reference href back to its path, or null. */
 export function parseNarrationPathHref(href: string): string | null {
   if (!href.startsWith(NARRATION_LINK_PREFIX)) {
     return null;
@@ -18,9 +17,7 @@ export function parseNarrationPathHref(href: string): string | null {
 
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-// Longest first so a path that prefixes another changed file's path cannot
-// shadow it. The lookarounds keep matches whole-token: not inside a longer
-// path or identifier, while still allowing sentence punctuation to follow.
+// Longest-first order stops a shorter path from shadowing one it prefixes; lookarounds require whole-token matches while still allowing trailing punctuation.
 const buildPathPattern = (paths: string[]): RegExp | null => {
   const distinct = [...new Set(paths.filter((path) => path.length > 0))].sort(
     (left, right) => right.length - left.length,

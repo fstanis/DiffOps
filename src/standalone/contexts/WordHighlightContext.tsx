@@ -37,7 +37,6 @@ export function WordHighlightProvider({ children }: { children: ReactNode }) {
     (e: React.MouseEvent) => {
       const target = e.target as HTMLElement;
 
-      // Check if target is a word token element
       if (!target.classList.contains('word-token')) {
         return;
       }
@@ -69,7 +68,6 @@ export function WordHighlightProvider({ children }: { children: ReactNode }) {
     [highlightedWord],
   );
 
-  // Cleanup timeout on unmount
   useEffect(() => {
     return () => {
       if (timeoutRef.current) {

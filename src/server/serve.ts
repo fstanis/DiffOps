@@ -1,6 +1,4 @@
-// Serves the built PWA from dist/pwa (`bun run serve`). Static files are the
-// whole surface: the app reaches Vercel's AI Gateway from the browser with the
-// key entered in Settings, so nothing dynamic is left here.
+// Serves the built PWA from dist/pwa; the app talks to Vercel's AI Gateway directly from the browser, so nothing dynamic lives here.
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 

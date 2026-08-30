@@ -44,8 +44,7 @@ describe('createMemoryKvStore', () => {
   });
 });
 
-// A scripted IndexedDB double: the tests drive each open request by hand, the
-// way a blocked upgrade or a competing tab would sequence the real events.
+// A scripted IndexedDB double: tests drive each open request by hand to sequence blocked-upgrade and competing-tab scenarios.
 interface FakeOpenRequest {
   result?: unknown;
   error?: unknown;
@@ -143,8 +142,7 @@ describe('openIndexedDbKvStore', () => {
       vi.stubGlobal('indexedDB', fake);
       const store = openIndexedDbKvStore('blocked-db', ['things'], { version: 3 });
 
-      // Observed through then/catch rather than expect().rejects, which never
-      // settles under bun's fake timers.
+      // Observed via then/catch rather than expect().rejects, which never settles under bun's fake timers.
       const blockedGet = store.get('things', 'a');
       const blockedOutcome = blockedGet.then(
         () => 'resolved',
@@ -153,8 +151,6 @@ describe('openIndexedDbKvStore', () => {
       vi.advanceTimersByTime(6_000);
       expect(await blockedOutcome).toMatch(/timed out/u);
 
-      // The blocking tab closes and the original open finally succeeds; the
-      // next operation uses the recovered connection.
       completeOpen(fake.opens[0]!);
       await expect(store.get('things', 'a')).resolves.toBe('value:a');
     } finally {

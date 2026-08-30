@@ -211,9 +211,9 @@ function App() {
   } = useDiffComments(
     resolvedSelection?.baseCommitish,
     resolvedSelection?.targetCommitish,
-    diffData?.commit, // Using commit as currentCommitHash
-    undefined, // branchToHash map - could be populated from server data
-    diffData?.repositoryId, // Repository identifier for storage isolation
+    diffData?.commit,
+    undefined,
+    diffData?.repositoryId,
     resolvedSelection?.baseMode,
   );
 
@@ -332,7 +332,7 @@ function App() {
     diffData?.commit,
     undefined,
     diffData?.files,
-    diffData?.repositoryId, // Repository identifier for storage isolation
+    diffData?.repositoryId,
     settings.autoViewedPatterns,
     resolvedSelection?.baseMode,
   );
@@ -370,8 +370,7 @@ function App() {
       if (!file) return;
 
       const wasViewed = viewedFiles.has(filePath);
-      // Re-anchor the header only when the user is scrolled past it (#164);
-      // otherwise stay stationary and let files below fill up (#402).
+      // Re-anchor the header only when the user is scrolled past it; otherwise stay stationary and let files below fill up.
       const shouldScrollToHeader = !wasViewed && isFileScrolledPastContainerTop(filePath);
       await toggleFileViewed(filePath, file);
 
@@ -463,10 +462,7 @@ function App() {
 
   const isStdinDiff = diffData?.baseCommitish === 'stdin' || diffData?.targetCommitish === 'stdin';
 
-  // Resolves the effective per-file mode, applying the fallbacks the stored
-  // preference cannot satisfy: full view and the full preview need /api/blob,
-  // which stdin diffs cannot serve, and split/full are unreadable at mobile
-  // widths.
+  // Falls back from the stored preference: full/full-preview need /api/blob (unavailable for stdin diffs), and split/full are unreadable on mobile.
   const resolveFileViewMode = useCallback(
     (file: DiffFile): FileViewMode => {
       const stored = fileViewModes[file.path] ?? DEFAULT_FILE_VIEW_MODE;
@@ -527,8 +523,7 @@ function App() {
     );
   }, [diffData, diffDataVersion, filesByPath, renderedFilePaths, lastUpdatedAt]);
 
-  // The single ordering source of truth; sidebar, main scroll, cursor, and
-  // anchors all consume this array.
+  // The single ordering source of truth; sidebar, main scroll, cursor, and anchors all consume this array.
   const displayFiles = useMemo(() => {
     if (!isNarrationActive || !narration.narration || !diffData) {
       return diffData?.files ?? EMPTY_DIFF_FILES;
@@ -545,7 +540,6 @@ function App() {
     }));
   }, [displayFiles, diffDataVersion, mergedChunksState]);
 
-  // One click restores the classic split layout for every file in the diff.
   const handleResetFileViewModes = useCallback(() => {
     const resetModes: FileViewModesByPath = {};
     displayFiles.forEach((file) => {
@@ -554,8 +548,7 @@ function App() {
     setFileViewModes(resetModes);
   }, [displayFiles]);
 
-  // Preview modes have no navigable diff rows; the closest navigation analog
-  // is the unified layout.
+  // Preview modes have no navigable diff rows; the closest navigation analog is the unified layout.
   const getNavigationViewMode = useCallback(
     (fileIndex: number): DiffViewMode => {
       const file = navigableFiles[fileIndex];
@@ -576,8 +569,7 @@ function App() {
     return cards;
   }, [narration.narration]);
 
-  // File-level scrolls anchor the narrated section — the card — in narrated
-  // view and the file header otherwise, so nothing above the diff is cut off.
+  // File-level scrolls anchor the narrated section (the card) in narrated view and the file header otherwise, so nothing above the diff is cut off.
   const scrollFileSectionIntoView = useCallback(
     (filePath: string) => {
       if (isNarrationActive && narrationCardsByPath.has(filePath)) {
@@ -666,8 +658,7 @@ function App() {
     }
   }, [commentsContextKey, fetchServerThreads, replaceThreads]);
 
-  // Bridge refreshes offer the reload button instead of refetching under the
-  // user so cursor, collapse, and scroll state survive.
+  // Bridge refreshes offer the reload button instead of refetching under the user, so cursor, collapse, and scroll state survive.
   const [shouldReload, setShouldReload] = useState(false);
   const [isReloading, setIsReloading] = useState(false);
   const reload = useCallback(async () => {
@@ -735,8 +726,7 @@ function App() {
       onScrollToFile: scrollFileSectionIntoView,
     });
 
-  // Silently remember the toggled file as the navigation position; no
-  // keyboard UI for a mouse interaction.
+  // Silently remember the toggled file as the navigation position; no keyboard UI for a mouse interaction.
   const handleViewedButtonToggle = useCallback(
     (filePath: string) => {
       void toggleFileReviewed(filePath);
@@ -746,6 +736,20 @@ function App() {
       }
     },
     [toggleFileReviewed, displayFiles, rememberFilePosition],
+  );
+
+  // Picking a file in the sidebar moves the user, so ]/[ must continue from it.
+  // The root's capture-phase click clears the visible cursor before this runs,
+  // which would otherwise leave navigation resuming from the last ] instead.
+  const handleSidebarFileSelect = useCallback(
+    (filePath: string) => {
+      const fileIndex = displayFiles.findIndex((file) => file.path === filePath);
+      if (fileIndex !== -1) {
+        rememberFilePosition(fileIndex);
+      }
+      scrollFileSectionIntoView(filePath);
+    },
+    [displayFiles, rememberFilePosition, scrollFileSectionIntoView],
   );
 
   useEffect(() => {
@@ -774,14 +778,12 @@ function App() {
 
   const narrationAnchorPathRef = useRef<string | null>(null);
   const handleToggleNarratedView = useCallback(() => {
-    // Capture the cursor's file while indexes still mean git order; the flip
-    // effect re-anchors to it once narrated order applies.
+    // Capture the cursor's file while indexes still mean git order; the flip effect re-anchors to it once narrated order applies.
     narrationAnchorPathRef.current = cursor ? (displayFiles[cursor.fileIndex]?.path ?? null) : null;
     narration.toggleNarratedView();
   }, [cursor, displayFiles, narration]);
 
-  // On the git→narrated flip, keep the viewed file in view at its new
-  // position and remap the remembered cursor to the new order.
+  // On the git→narrated flip, keep the viewed file in view at its new position and remap the remembered cursor to the new order.
   const prevIsNarratedViewRef = useRef(false);
   useEffect(() => {
     const wasNarratedView = prevIsNarratedViewRef.current;
@@ -935,8 +937,7 @@ function App() {
     };
   }, []);
 
-  // Hydrate settings from the server config so they survive port changes;
-  // seed unknown keys from localStorage.
+  // Hydrate settings from the server config so they survive port changes; seed unknown keys from localStorage.
   useEffect(() => {
     let cancelled = false;
 
@@ -1136,7 +1137,6 @@ function App() {
     }
   }, [viewedFiles.size, diffData, hasTriggeredSparkles]);
 
-  // Sync comments to the server on change and on page unload.
   useEffect(() => {
     if (!hasBootstrappedComments) {
       return;
@@ -1398,9 +1398,9 @@ function App() {
                         const remainingPercent =
                           ((diffData.files.length - viewedFiles.size) / diffData.files.length) *
                           100;
-                        if (remainingPercent > 50) return 'var(--color-github-accent)'; // green
-                        if (remainingPercent > 20) return 'var(--color-github-warning)'; // yellow
-                        return 'var(--color-github-danger)'; // red
+                        if (remainingPercent > 50) return 'var(--color-github-accent)';
+                        if (remainingPercent > 20) return 'var(--color-github-warning)';
+                        return 'var(--color-github-danger)';
                       })(),
                     }}
                   />
@@ -1496,7 +1496,7 @@ function App() {
                 />
                 <FileList
                   files={displayFiles}
-                  onScrollToFile={scrollFileSectionIntoView}
+                  onScrollToFile={handleSidebarFileSelect}
                   onFileSelected={isMobile ? handleMobileFileSelected : undefined}
                   comments={normalizedThreads}
                   reviewedFiles={viewedFiles}

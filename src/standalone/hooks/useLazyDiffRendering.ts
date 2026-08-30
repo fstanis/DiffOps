@@ -197,8 +197,7 @@ export function useLazyDiffRendering({
     [diffScrollContainerRef],
   );
 
-  // Deferred placeholders are shorter than rendered content, so wait for the
-  // sections that determine the target's position before scrolling.
+  // Deferred placeholders are shorter than rendered content, so wait for sections above to render before scrolling.
   const scrollElementIntoDiffContainer = useCallback(
     (elementId: string, requiredSectionIds: string[]) => {
       const requestId = scrollRequestIdRef.current + 1;
@@ -283,8 +282,7 @@ export function useLazyDiffRendering({
 
   const scrollNarrationCardIntoView = useCallback(
     (cardElementId: string, precedingFilePaths: string[], targetFilePath: string) => {
-      // Placeholder swaps above the card shift its offset, so every
-      // preceding section must render before the scroll settles.
+      // Placeholder swaps above the card shift its offset, so every preceding section must render first.
       precedingFilePaths.forEach((path) => ensureFileRendered(path));
       ensureFileRendered(targetFilePath);
       const requiredSectionIds = [

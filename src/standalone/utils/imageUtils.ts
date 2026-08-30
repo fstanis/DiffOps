@@ -1,7 +1,3 @@
-/**
- * Image file utilities
- */
-
 import { getFileExtension } from '../../utils/fileUtils';
 
 const IMAGE_EXTENSIONS = [
@@ -20,9 +16,6 @@ const IMAGE_EXTENSIONS = [
   'heif',
 ];
 
-/**
- * Check if a file is an image based on its extension
- */
 export function isImageFile(filename: string): boolean {
   if (!filename) return false;
 

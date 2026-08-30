@@ -103,8 +103,7 @@ export function useFileExplain({
 
   const hasBlobRef = Boolean(targetCommitish) && targetCommitish !== 'stdin';
 
-  // Load the file's whole current content eagerly but only when an explanation
-  // could actually run — the same cached fetch the prompt itself needs.
+  // Loads the file's whole content eagerly, only when an explanation could run — the same cached fetch the prompt itself needs.
   useEffect(() => {
     linesPromiseRef.current = null;
     setIsContentUnavailable(false);
@@ -216,8 +215,7 @@ export function useFileExplain({
         ) {
           return;
         }
-        // A record whose supporting files were already included is a
-        // final-round answer and structurally carries no file requests.
+        // A record whose supporting files were already included is a final-round answer and structurally carries no file requests.
         setState({ phase: 'loaded', explanation: stored.explanation, errorMessage: '' });
       } catch {
         // Persistence is best-effort; explaining without the cache still works.
@@ -273,8 +271,7 @@ export function useFileExplain({
       const lines = await ensureFileLines();
       const content = lines.join('\n');
       const ref = targetCommitish as string;
-      // Every candidate is verified by a successful blob probe, so the model
-      // can only ever ask for files the repository actually has.
+      // Every candidate is verified by a successful blob probe, so the model can only ever ask for files the repository actually has.
       const candidateFiles = await resolveExplainCandidates({
         sourcePath: file.path,
         source: content,
@@ -313,8 +310,7 @@ export function useFileExplain({
     [state.phase, state.explanation],
   );
 
-  // Prepare the single re-ask round: load the requested files whole, then the
-  // offer is ready (or disabled with a reason when the cap would be exceeded).
+  // Prepares the single re-ask round: loads the requested files whole, then the offer is ready (or disabled with a reason when the cap would be exceeded).
   useEffect(() => {
     if (state.phase !== 'loaded' || requestedFiles.length === 0) {
       return;
@@ -423,7 +419,6 @@ export function useFileExplain({
     void requestExplain();
   }, [requestExplain]);
 
-  // Cancel any in-flight explanation when the file's viewer unmounts.
   useEffect(() => {
     return () => {
       abortControllerRef.current?.abort();

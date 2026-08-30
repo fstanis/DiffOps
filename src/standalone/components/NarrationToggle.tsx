@@ -12,7 +12,6 @@ interface NarrationToggleProps {
   onRegenerate: () => void;
 }
 
-/** The sidebar's whole narration interface: the narrated-view switch. */
 export function NarrationToggle({
   isNarratedView,
   phase,

@@ -2,9 +2,8 @@ import { expect, test } from '@playwright/test';
 
 // The native directory picker cannot be automated, so showDirectoryPicker is
 // replaced from inside the page with a real OPFS directory handle holding a
-// copy of the served engine fixture (dist/pwa/fixture). Everything
-// downstream — the walk, the WORKERFS mount, the wasm-git engine, the diff —
-// runs the exact production code a picked folder exercises.
+// copy of the served engine fixture (dist/pwa/fixture); downstream code then
+// runs the exact production path a picked folder would exercise.
 const installOpfsPicker = `
   window.showDirectoryPicker = async () => {
     const manifest = await (await fetch('/fixture/manifest.json')).json();

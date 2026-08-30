@@ -224,4 +224,97 @@ describe('DiffChunk range comments', () => {
       );
     });
   });
+
+  it('extends a unified drag selection via a document-level mousemove', async () => {
+    const onAddComment = vi.fn().mockResolvedValue(undefined);
+    const { container } = renderWithProviders(
+      <DiffChunk
+        chunk={testChunk}
+        chunkIndex={0}
+        threads={[]}
+        mode="unified"
+        onAddComment={onAddComment}
+        onGenerateThreadPrompt={() => ''}
+        onRemoveThread={noop}
+        onReplyToThread={asyncNoop}
+        onRemoveMessage={noop}
+        onUpdateMessage={noop}
+        filename="src/example.ts"
+      />,
+    );
+
+    const rows = container.querySelectorAll('[data-diff-line-row="true"]');
+    fireEvent.mouseEnter(rows[0]!);
+    const commentButton = screen.getByRole('button', { name: 'Add a comment' });
+    fireEvent.mouseDown(commentButton);
+
+    const elementFromPointSpy = vi
+      .spyOn(document, 'elementFromPoint')
+      .mockReturnValue(rows[2] as unknown as Element);
+    fireEvent.mouseMove(document, { clientX: 10, clientY: 10 });
+    elementFromPointSpy.mockRestore();
+
+    fireEvent.mouseUp(document);
+
+    // The mouseup commit is deferred via setTimeout so the click doesn't reclose the form.
+    fireEvent.change(await screen.findByRole('textbox'), {
+      target: { value: 'Please revisit this range' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+
+    await waitFor(() => {
+      expect(onAddComment).toHaveBeenCalledWith(
+        [10, 12],
+        'Please revisit this range',
+        ['const first = 1;', 'const second = 2;', 'const third = 3;'].join('\n'),
+        'new',
+      );
+    });
+  });
+
+  it('extends a split-view drag selection via a document-level mousemove', async () => {
+    const onAddComment = vi.fn().mockResolvedValue(undefined);
+    const { container } = renderWithProviders(
+      <SideBySideDiffChunk
+        chunk={testChunk}
+        chunkIndex={0}
+        threads={[]}
+        onAddComment={onAddComment}
+        onGenerateThreadPrompt={() => ''}
+        onRemoveThread={noop}
+        onReplyToThread={asyncNoop}
+        onRemoveMessage={noop}
+        onUpdateMessage={noop}
+        filename="src/example.ts"
+      />,
+    );
+
+    const rows = container.querySelectorAll('[data-diff-line-row="true"]');
+    fireEvent.mouseEnter(rows[0]!.children[2]!);
+    const commentButton = screen.getByRole('button', { name: 'Add a comment' });
+    fireEvent.mouseDown(commentButton);
+
+    const elementFromPointSpy = vi
+      .spyOn(document, 'elementFromPoint')
+      .mockReturnValue(rows[2]!.children[2] as unknown as Element);
+    fireEvent.mouseMove(document, { clientX: 10, clientY: 10 });
+    elementFromPointSpy.mockRestore();
+
+    fireEvent.mouseUp(document);
+
+    // The mouseup commit is deferred via setTimeout so the click doesn't reclose the form.
+    fireEvent.change(await screen.findByRole('textbox'), {
+      target: { value: 'Please revisit this range' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+
+    await waitFor(() => {
+      expect(onAddComment).toHaveBeenCalledWith(
+        [10, 12],
+        'Please revisit this range',
+        ['const first = 1;', 'const second = 2;', 'const third = 3;'].join('\n'),
+        'new',
+      );
+    });
+  });
 });

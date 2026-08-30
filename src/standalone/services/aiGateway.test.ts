@@ -16,7 +16,10 @@ const { generateFileExplanation, generateNarration } = await import('./aiGateway
 interface GenerateCall {
   model: { id: string; apiKey: string };
   providerOptions?: { gateway: { only: string[] } };
-  schema: { required: string[] };
+  schema: {
+    required: string[];
+    properties: { symbols: { items: { required: string[] } } };
+  };
   abortSignal?: AbortSignal;
 }
 
@@ -29,7 +32,7 @@ const mockObject = (object: unknown) => {
 
 const explanation = (overrides: Partial<FileExplanation> = {}) => ({
   fileSummary: 'Runs the app.',
-  symbols: [{ name: 'run', type: 'function', summary: 'Runs it.' }],
+  symbols: [{ name: 'run', type: 'function', summary: 'Runs it.', isPublic: true }],
   ...overrides,
 });
 
@@ -86,6 +89,19 @@ describe('generateFileExplanation', () => {
 
     expect(lastCall().schema.required).toEqual(['fileSummary', 'symbols']);
     expect(result.additionalFilesNeeded).toEqual([]);
+  });
+
+  it('requires isPublic on every symbol', async () => {
+    mockObject(explanation());
+
+    await generateFileExplanation({
+      prompt: 'p',
+      candidateFiles: [],
+      model: 'anthropic/claude-sonnet-5',
+      apiKey: 'k',
+    });
+
+    expect(lastCall().schema.properties.symbols.items.required).toContain('isPublic');
   });
 
   it('uses the request-capable schema when candidates are offered', async () => {

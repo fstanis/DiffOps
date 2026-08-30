@@ -7,10 +7,6 @@ interface WordLevelDiffHighlighterProps {
   className?: string;
 }
 
-/**
- * Renders code with word-level diff highlighting.
- * Each segment is marked as unchanged, added, or removed with appropriate styling.
- */
 export const WordLevelDiffHighlighter = React.memo(function WordLevelDiffHighlighter({
   segments,
   className = '',

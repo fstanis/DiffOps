@@ -54,8 +54,7 @@ const formatBytes = (bytes: number): string =>
 
 // What libgit2 actually reads from .git for our read-only operations. The
 // rest (hooks, reflogs, editor droppings) is skipped: mirroring cost scales
-// with .git size, which is dominated by objects — and those are required,
-// because libgit2 mmaps packfiles and MEMFS is the only mmap-capable mount.
+// with .git size, which is dominated by objects.
 const MIRRORED_GIT_ROOT_FILES = new Set(['HEAD', 'config', 'index', 'packed-refs', 'shallow']);
 
 const isMirroredGitPath = (pathUnderGit: string): boolean => {

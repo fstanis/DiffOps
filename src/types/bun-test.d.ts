@@ -1,8 +1,5 @@
 /* oxlint-disable typescript/no-explicit-any */
-// Ambient types for `bun:test` — the narrow surface the suite uses, in the
-// serve.ts spirit of declaring just what we need instead of adopting
-// @types/bun. jest-dom merges its DOM matchers into `Matchers` via its
-// types/bun.d.ts (not exported through package exports, hence the path).
+// Ambient types for `bun:test` — only the narrow surface the suite uses, instead of adopting @types/bun. jest-dom merges its DOM matchers into `Matchers` via its types/bun.d.ts (not exported through package exports, hence the path).
 /// <reference path="../../node_modules/@testing-library/jest-dom/types/bun.d.ts" />
 
 declare module 'bun:test' {
@@ -90,7 +87,6 @@ declare module 'bun:test' {
     fn<TFunction extends Procedure = Procedure>(
       implementation?: TFunction,
     ): MockFunction<TFunction>;
-    /** Restores every spy created with spyOn to its original implementation. */
     spyOn<T, K extends keyof T>(
       object: T,
       method: K,
