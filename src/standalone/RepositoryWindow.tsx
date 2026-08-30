@@ -1,17 +1,23 @@
-import { RefreshCw, X } from 'lucide-react';
+import { Home, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { DiffSelection } from '../types/diff';
 
 import App from './App';
 import { MessageBanner } from './components/MessageBanner';
+import type { BlockingIndexExtension, FullWalkReason } from './gitEngine/walkRepository';
 import type { GitEngine } from './gitEngine/gitEngine';
 import {
   queryReadPermission,
   requestReadPermission,
-  walkDirectoryHandle,
   type PickedDirectoryHandle,
 } from './gitEngine/walkDirectory';
+import { walkRepositoryHandle } from './gitEngine/walkRepository';
+import { watchRepository, type RepositoryWatcher } from './gitEngine/watchRepository';
+import {
+  readAppearanceSettings,
+  subscribeToAppearanceSettings,
+} from './hooks/useAppearanceSettings';
 import { installLocalApiBridge, type LocalApiBridge } from './localApiBridge';
 import { getStandaloneStore } from './persistence/standaloneStore';
 import { LAUNCHER_HASH } from './repositoryRoute';
@@ -36,6 +42,8 @@ interface WalkProgressLabel {
   label: string;
   filesFound: number;
   bytesFound: number;
+  /** Tracked-file total; 0 while only `.git` is being read or on a full walk. */
+  totalFiles: number;
 }
 
 const formatBytes = (bytes: number): string => {
@@ -65,12 +73,46 @@ const walkWarnings = (unreadablePaths: string[]): string[] => {
   ];
 };
 
+const FULL_WALK_REASONS: Record<Exclude<FullWalkReason, 'none'>, string> = {
+  'missing-index': 'has no readable index',
+  'unreadable-index': 'has an index that could not be read',
+  'unsupported-index-version': 'uses an index format this app cannot parse',
+};
+
+const fullWalkWarning = (repoName: string, reason: FullWalkReason): string[] =>
+  reason === 'none'
+    ? []
+    : [
+        `"${repoName}" ${FULL_WALK_REASONS[reason]}, so every file in the folder was read instead of just the tracked ones.`,
+      ];
+
+const BLOCKING_INDEX_MESSAGES: Record<BlockingIndexExtension, (repoName: string) => string> = {
+  link: (repoName) =>
+    `"${repoName}" uses git's split index, which this app's engine cannot open. Run \`git update-index --no-split-index\` in the repository and open it again.`,
+  sdir: (repoName) =>
+    `"${repoName}" uses a sparse index, which this app's engine cannot open. Run \`git sparse-checkout disable\` (or \`git config index.sparse false\`) in the repository and open it again.`,
+};
+
 const toMessage = (error: unknown, fallback: string): string =>
   error instanceof Error ? error.message : fallback;
+
+// Staged deletions and sparse checkouts are normal git states, so missing
+// tracked paths go to the console instead of a review-facing banner.
+const reportMissingTrackedPaths = (repoName: string, missingTrackedPaths: string[]): void => {
+  if (missingTrackedPaths.length > 0) {
+    console.log(
+      `[diffops git] ${missingTrackedPaths.length} tracked path(s) missing from "${repoName}":`,
+      missingTrackedPaths.slice(0, 20),
+    );
+  }
+};
 
 const goToLauncher = (): void => {
   window.location.hash = LAUNCHER_HASH;
 };
+
+const ICON_BUTTON_CLASS =
+  'p-2 rounded transition-colors text-github-text-secondary hover:text-github-text-primary hover:bg-github-bg-tertiary';
 
 /** One window, one repository: mounts the registered folder and hosts the review. */
 export function RepositoryWindow({
@@ -83,22 +125,37 @@ export function RepositoryWindow({
   const [errorMessage, setErrorMessage] = useState('');
   const [warnings, setWarnings] = useState<string[]>([]);
   const [progress, setProgress] = useState<WalkProgressLabel | null>(null);
+  const [hasDiskChanges, setHasDiskChanges] = useState(false);
+  const [isWatchEnabled, setIsWatchEnabled] = useState(
+    () => readAppearanceSettings().watchRepository,
+  );
   const bridgeRef = useRef<LocalApiBridge | null>(null);
   const engineRef = useRef<GitEngine | null>(null);
   const handleRef = useRef<PickedDirectoryHandle | null>(null);
+  const watcherRef = useRef<RepositoryWatcher | null>(null);
 
   useEffect(() => {
     document.title = folderName;
   }, [folderName]);
 
-  const readFolder = useCallback(async (handle: PickedDirectoryHandle) => {
-    setProgress({ label: `Reading "${handle.name}"…`, filesFound: 0, bytesFound: 0 });
-    return walkDirectoryHandle(handle, (walkProgress) => {
-      setProgress({
-        label: `Reading "${handle.name}"…`,
-        filesFound: walkProgress.filesFound,
-        bytesFound: walkProgress.bytesFound,
-      });
+  // The watcher lives in this shell while the settings modal mounts deep
+  // inside App, so the flag is seeded from storage and kept live by
+  // subscription rather than waiting for a reload.
+  useEffect(
+    () => subscribeToAppearanceSettings((settings) => setIsWatchEnabled(settings.watchRepository)),
+    [],
+  );
+
+  const readRepositoryFolder = useCallback(async (handle: PickedDirectoryHandle) => {
+    const label = (phase: 'git' | 'worktree'): string =>
+      phase === 'git'
+        ? `Reading "${handle.name}" history…`
+        : `Reading ${handle.name} — tracked files…`;
+    setProgress({ label: label('git'), filesFound: 0, bytesFound: 0, totalFiles: 0 });
+    return walkRepositoryHandle(handle, {
+      onProgress: ({ phase, filesFound, bytesFound, totalFiles }) => {
+        setProgress({ label: label(phase), filesFound, bytesFound, totalFiles });
+      },
     });
   }, []);
 
@@ -108,18 +165,27 @@ export function RepositoryWindow({
       setErrorMessage('');
       setWarnings([]);
       try {
-        const { files, unreadablePaths } = await readFolder(handle);
+        const walk = await readRepositoryFolder(handle);
+        if (walk.blockingIndexExtension) {
+          setStatus({
+            kind: 'failed',
+            message: BLOCKING_INDEX_MESSAGES[walk.blockingIndexExtension](handle.name),
+          });
+          return;
+        }
+        reportMissingTrackedPaths(handle.name, walk.missingTrackedPaths);
         setProgress({
           label: 'Preparing the git engine…',
-          filesFound: files.length,
+          filesFound: walk.files.length,
           bytesFound: 0,
+          totalFiles: 0,
         });
         // The engine module (and with it the git worker client) loads only once a folder is actually mounted.
         engineRef.current ??= (
           createEngine ?? (await import('./gitEngine/gitEngine')).createGitEngine
         )();
         const engine = engineRef.current;
-        const info = await engine.open(files, handle.name);
+        const info = await engine.open(walk.files, handle.name);
         handleRef.current = handle;
         bridgeRef.current ??= installLocalApiBridge();
         bridgeRef.current.setRepository({
@@ -127,7 +193,11 @@ export function RepositoryWindow({
           repositoryId: info.repositoryId,
           repoName: info.repoName,
         });
-        setWarnings([...walkWarnings(unreadablePaths), ...info.warnings]);
+        setWarnings([
+          ...walkWarnings(walk.unreadablePaths),
+          ...fullWalkWarning(handle.name, walk.fullWalkReason),
+          ...info.warnings,
+        ]);
         setStatus({ kind: 'ready' });
       } catch (mountError) {
         setStatus({
@@ -138,8 +208,37 @@ export function RepositoryWindow({
         setProgress(null);
       }
     },
-    [createEngine, readFolder],
+    [createEngine, readRepositoryFolder],
   );
+
+  // Purely cosmetic signalling: the watcher only lights the Refresh button
+  // (never hides it), so an unsupported browser or a dropped observation
+  // degrades to exactly today's behaviour.
+  useEffect(() => {
+    const handle = handleRef.current;
+    if (status.kind !== 'ready' || !handle) {
+      return;
+    }
+    if (!isWatchEnabled) {
+      watcherRef.current?.disconnect();
+      watcherRef.current = null;
+      return;
+    }
+    let isCancelled = false;
+    setHasDiskChanges(false);
+    void watchRepository(handle, { onChanged: () => setHasDiskChanges(true) }).then((watcher) => {
+      if (isCancelled) {
+        watcher?.disconnect();
+        return;
+      }
+      watcherRef.current = watcher;
+    });
+    return () => {
+      isCancelled = true;
+      watcherRef.current?.disconnect();
+      watcherRef.current = null;
+    };
+  }, [status.kind, isWatchEnabled]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -208,16 +307,27 @@ export function RepositoryWindow({
       return;
     }
     setErrorMessage('');
+    // Cleared up front so changes landing mid-refresh re-light the button.
+    setHasDiskChanges(false);
     try {
-      const { files, unreadablePaths } = await readFolder(handle);
-      const mountWarnings = await bridge.refreshRepository(files);
-      setWarnings([...walkWarnings(unreadablePaths), ...mountWarnings]);
+      const walk = await readRepositoryFolder(handle);
+      if (walk.blockingIndexExtension) {
+        setErrorMessage(BLOCKING_INDEX_MESSAGES[walk.blockingIndexExtension](handle.name));
+        return;
+      }
+      reportMissingTrackedPaths(handle.name, walk.missingTrackedPaths);
+      const mountWarnings = await bridge.refreshRepository(walk.files);
+      setWarnings([
+        ...walkWarnings(walk.unreadablePaths),
+        ...fullWalkWarning(handle.name, walk.fullWalkReason),
+        ...mountWarnings,
+      ]);
     } catch (refreshError) {
       setErrorMessage(toMessage(refreshError, 'Failed to refresh the repository'));
     } finally {
       setProgress(null);
     }
-  }, [readFolder]);
+  }, [readRepositoryFolder]);
 
   const closeWindow = useCallback(() => {
     const opener = window.opener as Window | null;
@@ -253,9 +363,11 @@ export function RepositoryWindow({
         <div className="text-sm text-github-text-primary font-medium">{progress.label}</div>
         {progress.filesFound > 0 && (
           <div className="text-xs text-github-text-secondary">
-            {progress.bytesFound > 0
-              ? `${progress.filesFound.toLocaleString()} files · ${formatBytes(progress.bytesFound)} read`
-              : `${progress.filesFound.toLocaleString()} files read`}
+            {progress.totalFiles > 0
+              ? `${progress.filesFound.toLocaleString()} / ${progress.totalFiles.toLocaleString()} files · ${formatBytes(progress.bytesFound)}`
+              : progress.bytesFound > 0
+                ? `${progress.filesFound.toLocaleString()} files · ${formatBytes(progress.bytesFound)} read`
+                : `${progress.filesFound.toLocaleString()} files read`}
           </div>
         )}
       </div>
@@ -309,31 +421,48 @@ export function RepositoryWindow({
     );
   }
 
+  // Icon buttons for the App header: same shape as the file-tree and Settings
+  // buttons, so they read as one cluster.
+  const headerActions = (
+    <>
+      <button
+        type="button"
+        onClick={() => void refreshRepository()}
+        className={
+          hasDiskChanges
+            ? 'p-2 rounded transition-colors bg-github-accent text-white'
+            : ICON_BUTTON_CLASS
+        }
+        title={
+          hasDiskChanges
+            ? 'The folder changed on disk — re-read it and refetch the diff'
+            : 'Re-read the repository folder and refetch the diff'
+        }
+        aria-label={hasDiskChanges ? 'Refresh · changes on disk' : 'Refresh'}
+        data-testid="refresh-repo-button"
+      >
+        <RefreshCw size={18} />
+      </button>
+      <button
+        type="button"
+        onClick={closeWindow}
+        className={ICON_BUTTON_CLASS}
+        title="Close this repository window"
+        aria-label="Close this repository window"
+        data-testid="close-repo-button"
+      >
+        <Home size={18} />
+      </button>
+    </>
+  );
+
   return (
     <div className="h-screen">
-      <App routeSelection={routeSelection} onSelectionChange={onSelectionChange} />
-      <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => void refreshRepository()}
-          className="flex items-center gap-2 px-3 py-2 rounded-md bg-github-bg-secondary border border-github-border text-github-text-secondary hover:text-github-text-primary hover:bg-github-bg-tertiary text-xs shadow-md transition-colors"
-          title="Re-read the repository folder and refetch the diff"
-          data-testid="refresh-repo-button"
-        >
-          <RefreshCw size={14} />
-          Refresh
-        </button>
-        <button
-          type="button"
-          onClick={closeWindow}
-          className="flex items-center gap-2 px-3 py-2 rounded-md bg-github-bg-secondary border border-github-border text-github-text-secondary hover:text-github-text-primary hover:bg-github-bg-tertiary text-xs shadow-md transition-colors"
-          title="Close this repository window"
-          data-testid="close-repo-button"
-        >
-          <X size={14} />
-          Close
-        </button>
-      </div>
+      <App
+        routeSelection={routeSelection}
+        onSelectionChange={onSelectionChange}
+        headerActions={headerActions}
+      />
       {banners(true)}
       {progressOverlay}
     </div>

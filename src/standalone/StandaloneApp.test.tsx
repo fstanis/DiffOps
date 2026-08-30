@@ -1,16 +1,24 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { HotkeysProvider } from 'react-hotkeys-hook';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
 
 import StandaloneApp from './StandaloneApp';
-import { FakeGitWorkerClient, runFail, runOk } from './gitEngine/fakeGitWorkerClient';
+import {
+  FakeGitWorkerClient,
+  buildGitIndex,
+  runFail,
+  runOk,
+} from './gitEngine/fakeGitWorkerClient';
 import { GitEngine } from './gitEngine/gitEngine';
+import type { AppearanceSettings } from './components/SettingsModal';
+import { broadcastAppearanceSettings } from './hooks/useAppearanceSettings';
 import { resetStandaloneStoreForTests } from './persistence/standaloneStore';
 import { resetStandaloneSettingsForTests } from './persistence/settingsStore';
 
 const HEAD_HASH = '5a29ad326040fd305c942e461bc78c8c642e5812';
 const PARENT_HASH = '2f1d3c4b5a69788796a5b4c3d2e1f0091a2b3c4d';
 const ROOT_HASH = '864681f05278d072e0eae561a35858e2045330e5';
+const BLOB_HASH = '0123456789abcdef0123456789abcdef01234567';
 
 const REPO_DIFF = [
   'diff --git a/src/repo.ts b/src/repo.ts',
@@ -37,10 +45,10 @@ type TestHandle =
       requestPermission?: () => Promise<PermissionState>;
     };
 
-const pickerFile = (name: string, content: string): TestHandle => ({
+const pickerFile = (name: string, content: string | Uint8Array): TestHandle => ({
   kind: 'file',
   name,
-  getFile: () => Promise.resolve(new File([content], name)),
+  getFile: () => Promise.resolve(new File([content as BlobPart], name)),
 });
 
 const pickerDir = (
@@ -70,6 +78,7 @@ const makeRepoHandle = (name = 'repo', permissions: PermissionAnswers = {}): Tes
       pickerFile('README.md', 'readme\n'),
       pickerDir('.git', [
         pickerFile('HEAD', 'ref: refs/heads/main\n'),
+        pickerFile('index', buildGitIndex([{ path: 'README.md', sha: BLOB_HASH }])),
         pickerDir('refs', [pickerDir('heads', [pickerFile('main', `${HEAD_HASH}\n`)])]),
       ]),
     ],
@@ -81,6 +90,7 @@ const makeFakeClient = () =>
     files: {
       '.git/HEAD': 'ref: refs/heads/main\n',
       '.git/refs/heads/main': `${HEAD_HASH}\n`,
+      '.git/index': buildGitIndex([{ path: 'README.md', sha: BLOB_HASH }]),
     },
     run: (args) => {
       const [command, ...rest] = args;
@@ -531,5 +541,168 @@ describe('StandaloneApp repository window', () => {
 
     expect(closeCount).toBe(0);
     expect(await screen.findByTestId('register-repo-button')).toBeInTheDocument();
+  });
+});
+
+interface ObserverStub {
+  created: { observe: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> }[];
+  emit: (records: { type: string; relativePathComponents?: string[] }[]) => void;
+  uninstall: () => void;
+}
+
+const installObserverStub = (): ObserverStub => {
+  let recordCallback: ((records: unknown[], observer: unknown) => void) | null = null;
+  const created: ObserverStub['created'] = [];
+  class StubObserver {
+    observe = vi.fn(() => Promise.resolve());
+    disconnect = vi.fn();
+    constructor(callback: (records: unknown[], observer: unknown) => void) {
+      recordCallback = callback;
+      created.push(this);
+    }
+  }
+  const globalWithObserver = globalThis as { FileSystemObserver?: unknown };
+  globalWithObserver.FileSystemObserver = StubObserver;
+  return {
+    created,
+    emit: (records) => {
+      recordCallback?.(records, null);
+    },
+    uninstall: () => {
+      delete globalWithObserver.FileSystemObserver;
+    },
+  };
+};
+
+const appearanceSettingsWith = (watchRepository: boolean): AppearanceSettings => ({
+  fontSize: 14,
+  fontFamily:
+    '-apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif',
+  theme: 'dark',
+  syntaxTheme: 'vsDark',
+  colorVision: 'normal',
+  autoViewedPatterns: [],
+  watchRepository,
+});
+
+describe('StandaloneApp repository watcher', () => {
+  const installedObservers: ObserverStub[] = [];
+
+  beforeEach(() => {
+    window.localStorage.clear();
+    window.history.pushState({}, '', '/');
+    openedWindows.clear();
+    windowOpenCalls.length = 0;
+    permissionRequests = [];
+    resetStandaloneStoreForTests();
+    resetStandaloneSettingsForTests();
+    vi.restoreAllMocks();
+    delete (window as PickerWindow).showDirectoryPicker;
+    window.close = () => {};
+    window.confirm = () => true;
+  });
+
+  afterEach(() => {
+    for (const observer of installedObservers.splice(0)) {
+      observer.uninstall();
+    }
+    Object.defineProperty(window, 'opener', { configurable: true, writable: true, value: null });
+  });
+
+  const openWatchedRepository = async () => {
+    const launcher = renderApp();
+    await registerViaLauncher(makeRepoHandle());
+    launcher.unmount();
+
+    window.history.pushState({}, '', '/#/r/repo');
+    return renderRepoApp();
+  };
+
+  it('lights the Refresh button when the watched folder changes and clears it on refresh', async () => {
+    const observer = installObserverStub();
+    installedObservers.push(observer);
+    const { client } = await openWatchedRepository();
+
+    const refreshButton = await screen.findByTestId('refresh-repo-button');
+    await waitFor(() => {
+      expect(observer.created).toHaveLength(1);
+    });
+    expect(refreshButton).toHaveAccessibleName('Refresh');
+
+    await act(() => {
+      observer.emit([{ type: 'modified', relativePathComponents: ['README.md'] }]);
+      return Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('refresh-repo-button')).toHaveAccessibleName(
+        'Refresh · changes on disk',
+      );
+    });
+
+    fireEvent.click(screen.getByTestId('refresh-repo-button'));
+
+    await waitFor(() => {
+      expect(client.mountedRepoNames).toEqual(['repo', 'repo']);
+    });
+    expect(screen.getByTestId('refresh-repo-button')).toHaveAccessibleName('Refresh');
+  });
+
+  it('constructs no observer while watching is disabled in settings', async () => {
+    window.localStorage.setItem(
+      'reviewit-appearance-settings',
+      JSON.stringify(appearanceSettingsWith(false)),
+    );
+    const observer = installObserverStub();
+    installedObservers.push(observer);
+    await openWatchedRepository();
+
+    await screen.findByText('src/repo.ts');
+
+    expect(screen.getByTestId('refresh-repo-button')).toBeInTheDocument();
+    expect(observer.created).toHaveLength(0);
+  });
+
+  it('starts watching without a reload once the setting is switched on', async () => {
+    window.localStorage.setItem(
+      'reviewit-appearance-settings',
+      JSON.stringify(appearanceSettingsWith(false)),
+    );
+    const observer = installObserverStub();
+    installedObservers.push(observer);
+    await openWatchedRepository();
+    await screen.findByText('src/repo.ts');
+    expect(observer.created).toHaveLength(0);
+
+    await act(() => {
+      broadcastAppearanceSettings(appearanceSettingsWith(true));
+      return Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(observer.created).toHaveLength(1);
+    });
+    expect(observer.created[0]?.observe).toHaveBeenCalledWith(expect.anything(), {
+      recursive: true,
+    });
+  });
+
+  it('disconnects the watcher when the setting is switched off', async () => {
+    const observer = installObserverStub();
+    installedObservers.push(observer);
+    await openWatchedRepository();
+
+    await waitFor(() => {
+      expect(observer.created).toHaveLength(1);
+    });
+
+    await act(() => {
+      broadcastAppearanceSettings(appearanceSettingsWith(false));
+      return Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(observer.created[0]?.disconnect).toHaveBeenCalledTimes(1);
+    });
   });
 });

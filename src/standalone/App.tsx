@@ -146,9 +146,11 @@ interface AppProps {
   routeSelection?: DiffSelection | null;
   /** Reports the selection now on screen, so the shell can write it into the URL. */
   onSelectionChange?: (selection: DiffSelection) => void;
+  /** Window-level icon buttons the shell mounts into the header, next to Settings. */
+  headerActions?: React.ReactNode;
 }
 
-function App({ routeSelection = null, onSelectionChange }: AppProps) {
+function App({ routeSelection = null, onSelectionChange, headerActions }: AppProps) {
   const [diffData, setDiffData] = useState<DiffResponse | null>(null);
   const [diffDataVersion, setDiffDataVersion] = useState(0);
   const [fileViewModes, setFileViewModes] = useState<FileViewModesByPath>({});
@@ -1273,6 +1275,13 @@ function App({ routeSelection = null, onSelectionChange }: AppProps) {
     });
   };
 
+  // The shell's window controls stay reachable even when the diff could not
+  // load — Refresh is the recovery path for this screen.
+  const renderHeaderActionsOverlay = (): React.ReactNode =>
+    headerActions ? (
+      <div className="absolute top-0 left-0 z-50 flex items-center gap-1 p-2">{headerActions}</div>
+    ) : null;
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen bg-github-bg-primary">
@@ -1283,7 +1292,8 @@ function App({ routeSelection = null, onSelectionChange }: AppProps) {
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen bg-github-bg-primary text-center gap-2">
+      <div className="relative flex flex-col items-center justify-center h-screen bg-github-bg-primary text-center gap-2">
+        {renderHeaderActionsOverlay()}
         <h2 className="text-github-danger text-2xl mb-2">Error</h2>
         <p className="text-github-text-secondary text-base">{error}</p>
       </div>
@@ -1292,7 +1302,8 @@ function App({ routeSelection = null, onSelectionChange }: AppProps) {
 
   if (!diffData) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen bg-github-bg-primary text-center gap-2">
+      <div className="relative flex flex-col items-center justify-center h-screen bg-github-bg-primary text-center gap-2">
+        {renderHeaderActionsOverlay()}
         <h2 className="text-github-danger text-2xl mb-2">No data</h2>
         <p className="text-github-text-secondary text-base">No diff data available</p>
       </div>
@@ -1336,6 +1347,7 @@ function App({ routeSelection = null, onSelectionChange }: AppProps) {
               >
                 {isFileTreeOpen ? <PanelLeftClose size={18} /> : <PanelLeft size={18} />}
               </button>
+              {headerActions}
               <button
                 onClick={() => setIsSettingsOpen(true)}
                 className="p-2 text-github-text-secondary hover:text-github-text-primary hover:bg-github-bg-tertiary rounded transition-colors"

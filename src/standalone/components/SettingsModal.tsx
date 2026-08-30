@@ -10,15 +10,18 @@ import {
   getThemesForResolvedTheme,
   isSyntaxThemeForResolvedTheme,
 } from '../utils/themeLoader';
+import { Checkbox } from './Checkbox';
 import { Tooltip } from './Tooltip';
 
-interface AppearanceSettings {
+export interface AppearanceSettings {
   fontSize: number;
   fontFamily: string;
   theme: 'light' | 'dark' | 'auto';
   syntaxTheme: string;
   colorVision: ColorVisionMode;
   autoViewedPatterns: string[];
+  /** Watch the repository folder with FileSystemObserver to highlight Refresh. */
+  watchRepository: boolean;
 }
 
 interface SettingsModalProps {
@@ -40,6 +43,7 @@ const DEFAULT_SETTINGS: AppearanceSettings = {
   syntaxTheme: 'vsDark',
   colorVision: 'normal',
   autoViewedPatterns: [],
+  watchRepository: true,
 };
 
 const FONT_FAMILIES = [
@@ -188,6 +192,7 @@ export function SettingsModal({
     onSettingsChange({
       ...settings,
       autoViewedPatterns: DEFAULT_SETTINGS.autoViewedPatterns,
+      watchRepository: DEFAULT_SETTINGS.watchRepository,
     });
     setAutoViewedPatternsInput(formatAutoViewedPatterns(DEFAULT_SETTINGS.autoViewedPatterns));
   };
@@ -392,6 +397,19 @@ export function SettingsModal({
                     className="w-full p-3 bg-github-bg-tertiary border border-github-border rounded text-github-text-primary text-sm font-mono"
                   />
                 </div>
+
+                <div>
+                  <Checkbox
+                    checked={settings.watchRepository}
+                    onChange={(checked) =>
+                      onSettingsChange({ ...settings, watchRepository: checked })
+                    }
+                    label="Watch the repository folder for changes"
+                  />
+                  <p className="text-sm text-github-text-secondary mt-2">
+                    Highlights the Refresh button when files change on disk.
+                  </p>
+                </div>
               </div>
             )}
 
@@ -466,5 +484,3 @@ export function SettingsModal({
     </div>
   );
 }
-
-export type { AppearanceSettings };

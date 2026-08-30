@@ -12,6 +12,7 @@
 // window are dropped before any handler exists otherwise, and every request
 // silently times out (the handler-installed-after-await bug).
 import type { GitRunResult, GitWorkerRequest, GitWorkerResponse } from './protocol';
+import { isMirroredGitPath } from './gitDirPaths';
 import type { Lg2Module, Lg2ModuleOptions } from './vendor/lg2_workerfs.js';
 
 // The workspace tsconfig uses the DOM lib, whose global postMessage expects a
@@ -23,6 +24,9 @@ const workerScope = self as unknown as {
 
 const WORKTREE_ROOT = '/repo';
 const GIT_DIR_ROOT = '/gitdir';
+// A `.git` that is a file (a worktree or submodule pointer) is mirrored
+// verbatim so verifyRepository can read it and explain itself.
+const GIT_FILE_ROOT = '/gitfile';
 // The emulated-FS stat data never matches the real index, so diffs must fall
 // back to content comparison. `git status` would "fix" that by refreshing the
 // stat cache INTO this file, after which worktree diffs silently come back
@@ -54,15 +58,8 @@ const formatBytes = (bytes: number): string =>
 
 // What libgit2 actually reads from .git for our read-only operations. The
 // rest (hooks, reflogs, editor droppings) is skipped: mirroring cost scales
-// with .git size, which is dominated by objects.
-const MIRRORED_GIT_ROOT_FILES = new Set(['HEAD', 'config', 'index', 'packed-refs', 'shallow']);
-
-const isMirroredGitPath = (pathUnderGit: string): boolean => {
-  const topSegment = pathUnderGit.split('/')[0] ?? '';
-  return (
-    topSegment === 'objects' || topSegment === 'refs' || MIRRORED_GIT_ROOT_FILES.has(pathUnderGit)
-  );
-};
+// with .git size, which is dominated by objects. Kept as defence in depth —
+// the repository walker filters with the same predicate (gitDirPaths.ts).
 
 // Worker console output is invisible to automated browser runs (and dies with
 // a crashed renderer), so every milestone is also posted to the main thread.
@@ -233,6 +230,11 @@ const dropPreviousRepository = (): void => {
   } catch {
     // No previous git directory.
   }
+  try {
+    FS.unlink(GIT_FILE_ROOT);
+  } catch {
+    // No previous .git file.
+  }
 };
 
 const mountRepository = async (files: { path: string; file: File }[]): Promise<string[]> => {
@@ -260,6 +262,13 @@ const mountRepository = async (files: { path: string; file: File }[]): Promise<s
   // time for repos with many loose objects. A file that fails to read mid-
   // mount (moved on disk, permission edge) is skipped with a warning — the
   // rest of the repository still works, which beats failing the whole open.
+  const mirrorTarget = (path: string): string | null => {
+    if (path === '.git') {
+      return GIT_FILE_ROOT;
+    }
+    const pathUnderGit = path.slice('.git/'.length);
+    return isMirroredGitPath(pathUnderGit) ? `${GIT_DIR_ROOT}/${pathUnderGit}` : null;
+  };
   const READ_BATCH_SIZE = 16;
   let gitFileCount = 0;
   let skippedFileCount = 0;
@@ -267,12 +276,15 @@ const mountRepository = async (files: { path: string; file: File }[]): Promise<s
   for (let offset = 0; offset < gitFiles.length; offset += READ_BATCH_SIZE) {
     const batch = gitFiles
       .slice(offset, offset + READ_BATCH_SIZE)
-      .filter(({ path }) => isMirroredGitPath(path.slice('.git/'.length)));
+      .map(({ path, file }) => ({ target: mirrorTarget(path), path, file }))
+      .filter(
+        (entry): entry is { target: string; path: string; file: File } => entry.target !== null,
+      );
     const read = await Promise.all(
-      batch.map(async ({ path, file }) => {
+      batch.map(async ({ target, path, file }) => {
         try {
           return {
-            target: `${GIT_DIR_ROOT}/${path.slice('.git/'.length)}`,
+            target,
             bytes: new Uint8Array(await file.arrayBuffer()),
           };
         } catch (error) {
@@ -285,7 +297,10 @@ const mountRepository = async (files: { path: string; file: File }[]): Promise<s
       if (!entry) {
         continue;
       }
-      FS.mkdirTree(entry.target.slice(0, entry.target.lastIndexOf('/')));
+      const parent = entry.target.slice(0, entry.target.lastIndexOf('/'));
+      if (parent) {
+        FS.mkdirTree(parent);
+      }
       FS.writeFile(entry.target, entry.bytes);
       gitFileCount += 1;
       mirroredBytes += entry.bytes.byteLength;
@@ -300,7 +315,10 @@ const mountRepository = async (files: { path: string; file: File }[]): Promise<s
   // back at it; without core.worktree libgit2 would treat /gitdir's parent
   // as the work tree. filemode stays off because WORKERFS presents every
   // file as mode 0100777, and symlinks stay off because WORKERFS cannot
-  // represent them at all — the same declarations git makes on FAT32.
+  // represent them at all — the same declarations git makes on FAT32. The
+  // tree must exist before the write: when `.git` is a file nothing under
+  // /gitdir was mirrored, and the write would die with ENOENT.
+  FS.mkdirTree(GIT_DIR_ROOT);
   const configPath = `${GIT_DIR_ROOT}/config`;
   const existingConfig = FS.analyzePath(configPath).exists
     ? FS.readFile(configPath, { encoding: 'utf8' })
@@ -361,9 +379,12 @@ const runGit = (args: string[]): GitRunResult => {
 
 const readRepositoryFile = (path: string): ArrayBuffer | null => {
   const cleanPath = path.replace(/^\/+/, '');
-  const full = isGitPath(cleanPath)
-    ? `${GIT_DIR_ROOT}/${cleanPath.slice('.git/'.length)}`
-    : `${WORKTREE_ROOT}/${cleanPath}`;
+  const full =
+    cleanPath === '.git'
+      ? GIT_FILE_ROOT
+      : isGitPath(cleanPath)
+        ? `${GIT_DIR_ROOT}/${cleanPath.slice('.git/'.length)}`
+        : `${WORKTREE_ROOT}/${cleanPath}`;
   const entry = FS.analyzePath(full);
   if (!entry.exists || entry.object?.isFolder) {
     return null;

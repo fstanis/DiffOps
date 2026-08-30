@@ -20,6 +20,7 @@ const DEFAULT_SETTINGS: AppearanceSettings = {
   syntaxTheme: 'vsDark',
   colorVision: 'normal',
   autoViewedPatterns: [],
+  watchRepository: true,
 };
 
 const APPEARANCE_SETTINGS_KEY = 'appearance';
@@ -37,7 +38,42 @@ const normalizeStoredSettings = (raw: unknown): AppearanceSettings | null => {
     ...DEFAULT_SETTINGS,
     ...parsed,
     autoViewedPatterns: normalizeAutoViewedPatterns(parsed.autoViewedPatterns),
+    watchRepository: parsed.watchRepository !== false,
   };
+};
+
+type AppearanceSettingsListener = (settings: AppearanceSettings) => void;
+
+const listeners = new Set<AppearanceSettingsListener>();
+
+/** The returned function unsubscribes. */
+export const subscribeToAppearanceSettings = (
+  listener: AppearanceSettingsListener,
+): (() => void) => {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+};
+
+/** Notifies subscribers of a settings change; the hook's update path publishes here. */
+export const broadcastAppearanceSettings = (settings: AppearanceSettings): void => {
+  for (const listener of listeners) {
+    listener(settings);
+  }
+};
+
+/** Reads the persisted appearance settings, falling back to the defaults. */
+export const readAppearanceSettings = (): AppearanceSettings => {
+  try {
+    const stored = localStorage.getItem(APPEARANCE_STORAGE_KEY);
+    if (stored) {
+      return normalizeStoredSettings(JSON.parse(stored)) ?? DEFAULT_SETTINGS;
+    }
+  } catch {
+    // Unreadable stored settings are not worth a warning on every reader.
+  }
+  return DEFAULT_SETTINGS;
 };
 
 interface UseAppearanceSettingsReturn {
@@ -46,20 +82,7 @@ interface UseAppearanceSettingsReturn {
 }
 
 export function useAppearanceSettings(): UseAppearanceSettingsReturn {
-  const [settings, setSettings] = useState<AppearanceSettings>(() => {
-    try {
-      const stored = localStorage.getItem(APPEARANCE_STORAGE_KEY);
-      if (stored) {
-        const normalized = normalizeStoredSettings(JSON.parse(stored));
-        if (normalized) {
-          return normalized;
-        }
-      }
-    } catch (error) {
-      console.warn('Failed to load appearance settings from localStorage:', error);
-    }
-    return DEFAULT_SETTINGS;
-  });
+  const [settings, setSettings] = useState<AppearanceSettings>(readAppearanceSettings);
 
   const settingsRef = useRef(settings);
   useEffect(() => {
@@ -78,6 +101,7 @@ export function useAppearanceSettings(): UseAppearanceSettingsReturn {
       const remote = normalizeStoredSettings(client[APPEARANCE_SETTINGS_KEY]);
       if (remote) {
         setSettings(remote);
+        broadcastAppearanceSettings(remote);
         try {
           localStorage.setItem(APPEARANCE_STORAGE_KEY, JSON.stringify(remote));
         } catch {
@@ -177,6 +201,7 @@ export function useAppearanceSettings(): UseAppearanceSettingsReturn {
     (newSettings: AppearanceSettings) => {
       setSettings(newSettings);
       saveSettings(newSettings);
+      broadcastAppearanceSettings(newSettings);
     },
     [saveSettings],
   );

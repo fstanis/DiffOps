@@ -14,6 +14,8 @@ export interface PickedDirectoryHandle {
   kind: 'directory';
   name: string;
   entries(): AsyncIterableIterator<[name: string, handle: PickedHandle]>;
+  /** Present on real handles; resolves a child file even when `entries()` spells its name differently. */
+  getFileHandle?(name: string): Promise<PickedFileHandle>;
   queryPermission?(descriptor: { mode: 'read' | 'readwrite' }): Promise<PermissionState>;
   requestPermission?(descriptor: { mode: 'read' | 'readwrite' }): Promise<PermissionState>;
 }
@@ -26,7 +28,7 @@ export interface WalkedFile {
   file: File;
 }
 
-export interface WalkProgress {
+interface WalkProgress {
   filesFound: number;
   bytesFound: number;
 }
@@ -35,6 +37,16 @@ export interface WalkProgress {
 export interface WalkResult {
   files: WalkedFile[];
   unreadablePaths: string[];
+}
+
+export interface WalkOptions {
+  /** Skip a directory and everything under it. Not consulted for the walk root. */
+  shouldDescend?: (path: string) => boolean;
+  /** Skip taking a File handle for this path. */
+  shouldTake?: (path: string) => boolean;
+  onProgress?: (progress: WalkProgress) => void;
+  /** Receives every directory handle the walk descends into, keyed by its walked path. */
+  onDirectory?: (path: string, handle: PickedDirectoryHandle) => void;
 }
 
 // Progress ticks at most ~10/s: a per-file callback on a 300k-file worktree
@@ -52,7 +64,7 @@ const PROGRESS_INTERVAL_MS = 100;
  */
 export const walkDirectoryHandle = async (
   handle: PickedDirectoryHandle,
-  onProgress?: (progress: WalkProgress) => void,
+  options?: WalkOptions,
 ): Promise<WalkResult> => {
   const files: WalkedFile[] = [];
   const unreadablePaths: string[] = [];
@@ -60,7 +72,7 @@ export const walkDirectoryHandle = async (
   let lastProgressAt = 0;
 
   const reportProgress = (): void => {
-    if (!onProgress) {
+    if (!options?.onProgress) {
       return;
     }
     const now = performance.now();
@@ -68,7 +80,7 @@ export const walkDirectoryHandle = async (
       return;
     }
     lastProgressAt = now;
-    onProgress({ filesFound: files.length, bytesFound });
+    options.onProgress({ filesFound: files.length, bytesFound });
   };
 
   const walk = async (directory: PickedDirectoryHandle, prefix: string): Promise<void> => {
@@ -84,6 +96,9 @@ export const walkDirectoryHandle = async (
     await Promise.all(
       children.map(async ([name, entry]) => {
         if (entry.kind === 'file') {
+          if (options?.shouldTake?.(prefix + name) === false) {
+            return;
+          }
           try {
             const file = await entry.getFile();
             files.push({ path: prefix + name, file });
@@ -93,14 +108,19 @@ export const walkDirectoryHandle = async (
           }
           reportProgress();
         } else {
-          await walk(entry, `${prefix}${name}/`);
+          const directoryPath = prefix + name;
+          if (options?.shouldDescend?.(directoryPath) === false) {
+            return;
+          }
+          options?.onDirectory?.(directoryPath, entry);
+          await walk(entry, `${directoryPath}/`);
         }
       }),
     );
   };
 
   await walk(handle, '');
-  onProgress?.({ filesFound: files.length, bytesFound });
+  options?.onProgress?.({ filesFound: files.length, bytesFound });
   return { files, unreadablePaths };
 };
 

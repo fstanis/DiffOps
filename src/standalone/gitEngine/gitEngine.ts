@@ -447,8 +447,9 @@ export class GitEngine implements RepositoryEngine {
     return rootCommit;
   }
 
-  // WORKERFS cannot represent symlinks or submodule gitlinks, so git compares
-  // them as regular files and flags every such path as modified. The index
+  // WORKERFS cannot represent symlinks or submodule gitlinks. Chromium's file
+  // system access hides symlinks outright, so they diff as deleted; a moved
+  // submodule pointer (`.git`-file layout) diffs to nothing at all. The index
   // still records their true modes; surface them as warnings instead of
   // letting the diff misrender silently.
   private async unsupportedEntriesWarnings(): Promise<string[]> {
@@ -463,12 +464,12 @@ export class GitEngine implements RepositoryEngine {
       const warnings: string[] = [];
       if (symlinkPaths.length > 0) {
         warnings.push(
-          `Browsers cannot represent the ${countLabel(symlinkPaths.length, 'symlink')} in this repository (e.g. "${symlinkPaths[0]}"); ${symlinkPaths.length === 1 ? 'it may show' : 'they may show'} as a modified file.`,
+          `Browsers cannot represent the ${countLabel(symlinkPaths.length, 'symlink')} in this repository (e.g. "${symlinkPaths[0]}"); ${symlinkPaths.length === 1 ? 'it shows' : 'they show'} as deleted.`,
         );
       }
       if (gitlinkPaths.length > 0) {
         warnings.push(
-          `This repository contains ${countLabel(gitlinkPaths.length, 'submodule')} (e.g. "${gitlinkPaths[0]}") whose contents a browser cannot read; ${gitlinkPaths.length === 1 ? 'it may show' : 'they may show'} as a modified file.`,
+          `This repository contains ${countLabel(gitlinkPaths.length, 'submodule')} (e.g. "${gitlinkPaths[0]}") whose contents a browser cannot read; submodule pointer changes are not reported.`,
         );
       }
       return warnings;

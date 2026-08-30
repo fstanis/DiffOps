@@ -28,6 +28,7 @@ const baseSettings = {
   syntaxTheme: 'vsDark',
   colorVision: 'normal' as const,
   autoViewedPatterns: [],
+  watchRepository: true,
 };
 
 const baseAiSettings = { ...DEFAULT_AI_SETTINGS };
@@ -126,6 +127,36 @@ describe('SettingsModal', () => {
     expect(onSettingsChange).toHaveBeenLastCalledWith({
       ...baseSettings,
       autoViewedPatterns: ['*.test.ts', 'src/generated/**'],
+    });
+  });
+
+  it('round-trips the repository watcher checkbox through the system section', () => {
+    const onSettingsChange = vi.fn();
+
+    render(
+      <SettingsModal
+        isOpen={true}
+        onClose={vi.fn()}
+        settings={{ ...baseSettings, watchRepository: true }}
+        onSettingsChange={onSettingsChange}
+        aiSettings={baseAiSettings}
+        onAiSettingsChange={vi.fn()}
+      />,
+      { wrapper },
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /^System/ }));
+
+    const watcherCheckbox = screen.getByRole('checkbox', {
+      name: 'Watch the repository folder for changes',
+    });
+    expect(watcherCheckbox).toHaveAttribute('aria-checked', 'true');
+
+    fireEvent.click(watcherCheckbox);
+
+    expect(onSettingsChange).toHaveBeenLastCalledWith({
+      ...baseSettings,
+      watchRepository: false,
     });
   });
 });

@@ -19,15 +19,33 @@ test('the fixture repository renders its working diff through the wasm engine', 
   const fileTree = page.locator('#file-tree-panel');
   await expect(fileTree.locator('span[title="src/app.ts"]')).toBeVisible();
   await expect(fileTree.locator('span[title="README.md"]')).toBeVisible();
+  // The index-driven walk mounts only tracked files, so the fixture's
+  // untracked node_modules and dist trees never reach the diff at all.
+  await expect(fileTree.locator('span[title*="node_modules/"]')).toHaveCount(0);
+  await expect(fileTree.locator('span[title*="dist/"]')).toHaveCount(0);
 
   // The window names the repository and the diff it is showing.
   await expect(page).toHaveURL(/#\/r\/fixture-repo\?base=HEAD&target=\./);
 
-  // Refresh re-walks the mounted folder and re-renders without errors.
-  await page.getByTestId('refresh-repo-button').click();
+  // Refresh stays visible and neutral until the watched folder actually
+  // changes on disk, then re-reads cleanly.
+  const refreshButton = page.getByTestId('refresh-repo-button');
+  await expect(refreshButton).toHaveAccessibleName('Refresh');
+  await page.evaluate(async () => {
+    const root = await navigator.storage.getDirectory();
+    const repo = await root.getDirectoryHandle('fixture-repo', { create: true });
+    const handle = await repo.getFileHandle('notes.txt', { create: true });
+    const writable = await handle.createWritable();
+    await writable.write('changed on disk\n');
+    await writable.close();
+  });
+  await expect(refreshButton).toHaveAccessibleName('Refresh · changes on disk');
+
+  await refreshButton.click();
   await expect(page.getByRole('heading', { name: 'src/app.ts' })).toBeVisible({
     timeout: 60_000,
   });
+  await expect(refreshButton).toHaveAccessibleName('Refresh');
 });
 
 test('changing the revision after reading a blob without trailing newline still resolves commits', async ({
