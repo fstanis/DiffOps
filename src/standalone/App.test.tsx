@@ -15,7 +15,8 @@ import { DEFAULT_AI_SETTINGS } from './hooks/useAiSettings';
 import { buildChangesetFingerprint } from './utils/narrationFingerprint';
 
 // The AI gateway is the app's only outbound network call; everything else the app fetches goes through the global fetch mock.
-const generateNarration = vi.fn<() => Promise<Narration>>();
+const generateNarration =
+  vi.fn<(request: { prompt: string; paths: string[] }) => Promise<Narration>>();
 const generateFileExplanation = vi.fn();
 vi.mock('./services/aiGateway', () => ({ generateNarration, generateFileExplanation }));
 
@@ -1305,6 +1306,7 @@ describe('App Component - Narrated review', () => {
     narration?: typeof narrationPayload;
     storedNarration?: { narration: typeof narrationPayload; fingerprint: string } | null;
     narrateHandler?: () => Promise<Narration>;
+    hiddenPaths?: string[];
   }
 
   const programNarrationFetch = (options: NarrationSessionOptions = {}) => {
@@ -1330,6 +1332,12 @@ describe('App Component - Narrated review', () => {
         return Promise.resolve({
           ok: true,
           json: async () => ({ narration: options.storedNarration ?? null }),
+        } as Response);
+      }
+      if (url.includes('/api/hidden-files')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ paths: options.hiddenPaths ?? [] }),
         } as Response);
       }
       return Promise.resolve({
@@ -1619,5 +1627,70 @@ describe('App Component - Narrated review', () => {
     const toggle = await screen.findByRole('switch', { name: 'Toggle narrated view' });
     expect(toggle).toBeDisabled();
     expect(toggle).toHaveAttribute('title', 'Changeset too large to narrate');
+  });
+  const getHideButton = (path: string) => {
+    const row = screen.getByTitle(path).closest<HTMLElement>('[data-file-row="true"]');
+    expect(row).not.toBeNull();
+    return within(row as HTMLElement).getByRole('button', {
+      name: 'Hide this file from the review and the AI',
+    });
+  };
+
+  it('drops a hidden file from the document, the narration prompt and the counters', async () => {
+    programNarrationFetch();
+    renderApp();
+
+    await screen.findByText('Files changed (3)');
+    fireEvent.click(getHideButton('b.ts'));
+
+    await screen.findByText('Files changed (2)');
+    expect(screen.getByText('1 hidden')).toBeInTheDocument();
+    expect(getDocumentFilePaths()).toEqual(['a.ts', 'c.ts']);
+
+    fireEvent.click(getToggle());
+    await waitFor(() => {
+      expect(generateNarration).toHaveBeenCalled();
+    });
+
+    const request = generateNarration.mock.calls[0]?.[0];
+    expect(request?.paths).toEqual(['a.ts', 'c.ts']);
+    expect(request?.prompt).not.toContain('b.ts');
+  });
+
+  it('persists the hidden path and restores the file when the eye is clicked again', async () => {
+    programNarrationFetch();
+    renderApp();
+
+    await screen.findByText('Files changed (3)');
+    fireEvent.click(getHideButton('b.ts'));
+    await screen.findByText('Files changed (2)');
+
+    const hiddenFilesPut = vi
+      .mocked(global.fetch)
+      .mock.calls.find(
+        ([input, init]) =>
+          String(input).includes('/api/hidden-files') &&
+          (init as RequestInit | undefined)?.method === 'PUT',
+      );
+    expect(hiddenFilesPut).toBeDefined();
+    const putInit = (hiddenFilesPut?.[1] ?? {}) as RequestInit;
+    expect(JSON.parse(String(putInit.body))).toEqual({ paths: ['b.ts'] });
+
+    const row = screen.getByTitle('b.ts').closest<HTMLElement>('[data-file-row="true"]');
+    fireEvent.click(
+      within(row as HTMLElement).getByRole('button', { name: 'Show this file again' }),
+    );
+
+    await screen.findByText('Files changed (3)');
+    expect(getDocumentFilePaths()).toEqual(['a.ts', 'b.ts', 'c.ts']);
+  });
+
+  it('applies the persisted hidden files on load', async () => {
+    programNarrationFetch({ hiddenPaths: ['a.ts'] });
+    renderApp();
+
+    await screen.findByText('Files changed (2)');
+    expect(getDocumentFilePaths()).toEqual(['b.ts', 'c.ts']);
+    expect(getSidebarFilePaths()).toEqual(['a.ts', 'b.ts', 'c.ts']);
   });
 });

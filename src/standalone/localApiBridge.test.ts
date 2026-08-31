@@ -306,6 +306,76 @@ describe('installLocalApiBridge', () => {
     expect(stored.narration?.narration).toEqual(narration);
   });
 
+  describe('hidden files', () => {
+    it('round-trips hidden paths for the mounted repository', async () => {
+      installWithRepo();
+
+      const empty = (await (await fetch('/api/hidden-files')).json()) as { paths: string[] };
+      expect(empty.paths).toEqual([]);
+
+      const put = await fetch('/api/hidden-files', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paths: ['bun.lock', 'src/generated.ts'] }),
+      });
+      expect(put.ok).toBe(true);
+
+      const stored = (await (await fetch('/api/hidden-files')).json()) as { paths: string[] };
+      expect(stored.paths).toEqual(['bun.lock', 'src/generated.ts']);
+    });
+
+    it('keeps each repository under its own record', async () => {
+      const store = new StandaloneStore(createMemoryKvStore());
+      const first = installLocalApiBridge({ store });
+      mountRepository(first, 'repo-a');
+      await fetch('/api/hidden-files', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paths: ['bun.lock'] }),
+      });
+      first.restore();
+
+      const second = installLocalApiBridge({ store });
+      mountRepository(second, 'repo-b');
+      bridge = second;
+
+      const other = (await (await fetch('/api/hidden-files')).json()) as { paths: string[] };
+      expect(other.paths).toEqual([]);
+    });
+
+    it('persists hidden paths across bridge reinstalls via the store', async () => {
+      const store = new StandaloneStore(createMemoryKvStore());
+      const first = installLocalApiBridge({ store });
+      mountRepository(first);
+      await fetch('/api/hidden-files', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paths: ['bun.lock'] }),
+      });
+      first.restore();
+
+      const second = installLocalApiBridge({ store });
+      mountRepository(second);
+      bridge = second;
+
+      const stored = (await (await fetch('/api/hidden-files')).json()) as { paths: string[] };
+      expect(stored.paths).toEqual(['bun.lock']);
+    });
+
+    it('rejects payloads that are not a list of paths', async () => {
+      installWithRepo();
+
+      for (const body of ['{"paths":"bun.lock"}', '{"paths":[1]}', 'not json']) {
+        const put = await fetch('/api/hidden-files', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+        });
+        expect(put.status).toBe(400);
+      }
+    });
+  });
+
   describe('file explanations', () => {
     const storedExplanation = {
       fileSummary: 'Parses the sensor stream.',

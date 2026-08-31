@@ -1,6 +1,8 @@
 import {
   ChevronRight,
   ChevronDown,
+  Eye,
+  EyeOff,
   FileDiff,
   FolderOpen,
   Folder,
@@ -20,6 +22,7 @@ import { isSafariBrowser } from '../utils/browser';
 import { Checkbox } from './Checkbox';
 
 interface FileListProps {
+  /** Every listed file, hidden ones included; hidden rows stay visible so they can be restored. */
   files: DiffFile[];
   onScrollToFile: (path: string) => void;
   onFileSelected?: () => void;
@@ -27,6 +30,9 @@ interface FileListProps {
   reviewedFiles: Set<string>;
   onToggleReviewed: (path: string) => void;
   onToggleFolderReviewed: (path: string, reviewed: boolean) => void;
+  /** Paths excluded from the diff pane and from every AI prompt. */
+  hiddenFiles: Set<string>;
+  onToggleHidden: (path: string) => void;
   selectedFileIndex: number | null;
   /** Renders the numbered flat narrated list instead of the directory tree. */
   isNarratedView?: boolean;
@@ -59,24 +65,48 @@ function getAllDirectoryPaths(node: TreeNode): string[] {
   return paths;
 }
 
-function getReviewedDirectoryPaths(node: TreeNode, reviewedFiles: Set<string>): Set<string> {
+interface ReviewTally {
+  reviewable: number;
+  reviewed: number;
+}
+
+function getReviewedDirectoryPaths(
+  node: TreeNode,
+  reviewedFiles: Set<string>,
+  hiddenFiles: Set<string>,
+): Set<string> {
   const reviewedDirectoryPaths = new Set<string>();
 
-  const visit = (currentNode: TreeNode): boolean => {
+  // Hidden files count for neither side of the tally: a folder is struck
+  // through once everything still up for review in it has been reviewed, and a
+  // folder with nothing left to review is never struck through at all.
+  const visit = (currentNode: TreeNode): ReviewTally => {
     if (currentNode.file) {
-      return reviewedFiles.has(currentNode.file.path);
+      if (hiddenFiles.has(currentNode.file.path)) {
+        return { reviewable: 0, reviewed: 0 };
+      }
+      return { reviewable: 1, reviewed: reviewedFiles.has(currentNode.file.path) ? 1 : 0 };
     }
 
-    if (!currentNode.isDirectory || !currentNode.children || currentNode.children.length === 0) {
-      return false;
+    if (!currentNode.isDirectory || !currentNode.children) {
+      return { reviewable: 0, reviewed: 0 };
     }
 
-    const childrenReviewed = currentNode.children.map((child) => visit(child));
-    const areAllChildrenReviewed = childrenReviewed.every(Boolean);
-    if (areAllChildrenReviewed && currentNode.path) {
+    const tally = currentNode.children.reduce<ReviewTally>(
+      (totals, child) => {
+        const childTally = visit(child);
+        return {
+          reviewable: totals.reviewable + childTally.reviewable,
+          reviewed: totals.reviewed + childTally.reviewed,
+        };
+      },
+      { reviewable: 0, reviewed: 0 },
+    );
+
+    if (currentNode.path && tally.reviewable > 0 && tally.reviewed === tally.reviewable) {
       reviewedDirectoryPaths.add(currentNode.path);
     }
-    return areAllChildrenReviewed;
+    return tally;
   };
 
   visit(node);
@@ -153,6 +183,39 @@ function buildFileTree(files: DiffFile[]): TreeNode {
   return collapseDirectories(root);
 }
 
+interface HideToggleProps {
+  isHidden: boolean;
+  onToggle: () => void;
+}
+
+/**
+ * Per-file visibility switch: an open eye while the file takes part in the
+ * review, a struck-through one once it is out of both the diff pane and the AI
+ * prompts.
+ */
+function HideToggle({ isHidden, onToggle }: HideToggleProps) {
+  const label = isHidden ? 'Show this file again' : 'Hide this file from the review and the AI';
+
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      className={`shrink-0 rounded p-0.5 transition-colors hover:bg-github-bg-primary ${
+        isHidden
+          ? 'text-github-text-muted'
+          : 'text-github-text-secondary opacity-0 group-hover:opacity-100 focus-visible:opacity-100'
+      }`}
+      onClick={(event) => {
+        event.stopPropagation();
+        onToggle();
+      }}
+    >
+      {isHidden ? <EyeOff size={14} /> : <Eye size={14} />}
+    </button>
+  );
+}
+
 export const FileList = memo(function FileList({
   files,
   onScrollToFile,
@@ -161,6 +224,8 @@ export const FileList = memo(function FileList({
   reviewedFiles,
   onToggleReviewed,
   onToggleFolderReviewed,
+  hiddenFiles,
+  onToggleHidden,
   selectedFileIndex,
   isNarratedView = false,
 }: FileListProps) {
@@ -188,27 +253,34 @@ export const FileList = memo(function FileList({
     return counts;
   }, [comments]);
 
+  // Hidden files are absent from the reviewed document, so the numbering the
+  // caller's cursor indexes into skips them too.
+  const reviewableFiles = useMemo(
+    () => (hiddenFiles.size === 0 ? files : files.filter((file) => !hiddenFiles.has(file.path))),
+    [files, hiddenFiles],
+  );
   const fileIndexMap = useMemo(() => {
     const indices = new Map<string, number>();
-    files.forEach((file, index) => {
+    reviewableFiles.forEach((file, index) => {
       indices.set(file.path, index);
     });
     return indices;
-  }, [files]);
+  }, [reviewableFiles]);
   const diffTotals = useMemo(
     () =>
-      files.reduce(
+      reviewableFiles.reduce(
         (totals, file) => ({
           additions: totals.additions + file.additions,
           deletions: totals.deletions + file.deletions,
         }),
         { additions: 0, deletions: 0 },
       ),
-    [files],
+    [reviewableFiles],
   );
+  const hiddenCount = files.length - reviewableFiles.length;
   const reviewedDirectoryPaths = useMemo(
-    () => getReviewedDirectoryPaths(fileTree, reviewedFiles),
-    [fileTree, reviewedFiles],
+    () => getReviewedDirectoryPaths(fileTree, reviewedFiles, hiddenFiles),
+    [fileTree, reviewedFiles, hiddenFiles],
   );
 
   const filteredFileTree = useMemo(() => {
@@ -396,20 +468,25 @@ export const FileList = memo(function FileList({
       const file = node.file;
       const commentCount = commentCountMap.get(file.path) ?? 0;
       const isReviewed = reviewedFiles.has(file.path);
+      const isHidden = hiddenFiles.has(file.path);
       const fileIndex = fileIndexMap.get(file.path) ?? -1;
       const isSelected = selectedFileIndex !== null && selectedFileIndex === fileIndex;
 
       return (
         <div
           key={`file:${file.path}`}
-          className={`flex items-center gap-2 px-4 py-2 hover:bg-github-bg-tertiary cursor-pointer transition-colors ${
-            isReviewed ? 'opacity-70' : ''
-          } ${isSelected ? 'bg-github-bg-tertiary' : ''}`}
+          className={`group flex items-center gap-2 px-4 py-2 hover:bg-github-bg-tertiary transition-colors ${
+            isHidden ? 'cursor-default' : 'cursor-pointer'
+          } ${isReviewed || isHidden ? 'opacity-70' : ''} ${
+            isSelected ? 'bg-github-bg-tertiary' : ''
+          }`}
           data-file-row="true"
           data-tree-row="true"
           data-depth={depth}
+          data-file-hidden={isHidden ? 'true' : undefined}
           style={{ paddingLeft: getTreeRowPaddingLeft(depth) }}
           onClick={() => {
+            if (isHidden) return;
             onScrollToFile(file.path);
             onFileSelected?.();
           }}
@@ -426,7 +503,7 @@ export const FileList = memo(function FileList({
           <span
             className={`text-sm text-github-text-primary flex-1 overflow-hidden text-ellipsis whitespace-nowrap ${
               isReviewed ? 'line-through text-github-text-muted' : ''
-            }`}
+            } ${isHidden ? 'italic text-github-text-muted' : ''}`}
             title={node.file.path}
           >
             {node.name}
@@ -437,6 +514,12 @@ export const FileList = memo(function FileList({
               {commentCount}
             </span>
           )}
+          <HideToggle
+            isHidden={isHidden}
+            onToggle={() => {
+              onToggleHidden(file.path);
+            }}
+          />
         </div>
       );
     }
@@ -447,6 +530,7 @@ export const FileList = memo(function FileList({
   const renderNarratedRow = (file: DiffFile): React.ReactNode => {
     const commentCount = commentCountMap.get(file.path) ?? 0;
     const isReviewed = reviewedFiles.has(file.path);
+    const isHidden = hiddenFiles.has(file.path);
     const fileIndex = fileIndexMap.get(file.path) ?? -1;
     const isSelected = selectedFileIndex !== null && selectedFileIndex === fileIndex;
     const separatorIndex = file.path.lastIndexOf('/');
@@ -456,19 +540,23 @@ export const FileList = memo(function FileList({
     return (
       <div
         key={`file:${file.path}`}
-        className={`flex items-center gap-2 px-4 py-2 hover:bg-github-bg-tertiary cursor-pointer transition-colors ${
-          isReviewed ? 'opacity-70' : ''
-        } ${isSelected ? 'bg-github-bg-tertiary' : ''}`}
+        className={`group flex items-center gap-2 px-4 py-2 hover:bg-github-bg-tertiary transition-colors ${
+          isHidden ? 'cursor-default' : 'cursor-pointer'
+        } ${isReviewed || isHidden ? 'opacity-70' : ''} ${
+          isSelected ? 'bg-github-bg-tertiary' : ''
+        }`}
         data-file-row="true"
         data-tree-row="true"
         data-depth={0}
+        data-file-hidden={isHidden ? 'true' : undefined}
         onClick={() => {
+          if (isHidden) return;
           onScrollToFile(file.path);
           onFileSelected?.();
         }}
       >
         <span className="w-6 shrink-0 text-right text-xs text-github-text-muted select-none">
-          {fileIndex + 1}
+          {isHidden ? '–' : fileIndex + 1}
         </span>
         <Checkbox
           checked={isReviewed}
@@ -482,7 +570,7 @@ export const FileList = memo(function FileList({
         <span
           className={`text-sm text-github-text-primary flex-1 overflow-hidden text-ellipsis whitespace-nowrap ${
             isReviewed ? 'line-through text-github-text-muted' : ''
-          }`}
+          } ${isHidden ? 'italic text-github-text-muted' : ''}`}
           title={file.path}
         >
           {directory && <span className="text-github-text-muted">{directory}</span>}
@@ -494,6 +582,12 @@ export const FileList = memo(function FileList({
             {commentCount}
           </span>
         )}
+        <HideToggle
+          isHidden={isHidden}
+          onToggle={() => {
+            onToggleHidden(file.path);
+          }}
+        />
       </div>
     );
   };
@@ -509,9 +603,14 @@ export const FileList = memo(function FileList({
   return (
     <div className="h-full flex flex-col">
       <div className="px-4 py-3 border-b border-github-border bg-github-bg-tertiary">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-github-text-primary m-0">
-            Files changed ({files.length})
+        <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 mb-3">
+          <h3 className="text-sm font-semibold text-github-text-primary m-0 flex items-baseline gap-1.5 whitespace-nowrap">
+            <span>Files changed ({reviewableFiles.length})</span>
+            {hiddenCount > 0 && (
+              <span className="text-xs font-normal text-github-text-muted">
+                {hiddenCount} hidden
+              </span>
+            )}
           </h3>
           <div className="ml-auto flex items-center gap-2">
             <span

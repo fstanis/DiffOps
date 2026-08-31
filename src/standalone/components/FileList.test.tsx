@@ -40,6 +40,8 @@ describe('FileList', () => {
         reviewedFiles={new Set()}
         onToggleReviewed={vi.fn()}
         onToggleFolderReviewed={vi.fn()}
+        hiddenFiles={new Set()}
+        onToggleHidden={vi.fn()}
         selectedFileIndex={null}
       />,
     );
@@ -62,6 +64,8 @@ describe('FileList', () => {
       comments: [],
       onToggleReviewed: vi.fn(),
       onToggleFolderReviewed: vi.fn(),
+      hiddenFiles: new Set<string>(),
+      onToggleHidden: vi.fn(),
       selectedFileIndex: null,
     };
     const { rerender } = render(
@@ -104,6 +108,8 @@ describe('FileList', () => {
         reviewedFiles={new Set()}
         onToggleReviewed={vi.fn()}
         onToggleFolderReviewed={onToggleFolderReviewed}
+        hiddenFiles={new Set()}
+        onToggleHidden={vi.fn()}
         selectedFileIndex={null}
       />,
     );
@@ -129,6 +135,8 @@ describe('FileList', () => {
         reviewedFiles={new Set()}
         onToggleReviewed={vi.fn()}
         onToggleFolderReviewed={vi.fn()}
+        hiddenFiles={new Set()}
+        onToggleHidden={vi.fn()}
         selectedFileIndex={null}
       />,
     );
@@ -155,6 +163,8 @@ describe('FileList', () => {
         reviewedFiles={new Set(['src/cli/index.ts', 'src/client/App.tsx'])}
         onToggleReviewed={vi.fn()}
         onToggleFolderReviewed={onToggleFolderReviewed}
+        hiddenFiles={new Set()}
+        onToggleHidden={vi.fn()}
         selectedFileIndex={null}
       />,
     );
@@ -179,6 +189,8 @@ describe('FileList', () => {
         reviewedFiles={new Set()}
         onToggleReviewed={vi.fn()}
         onToggleFolderReviewed={vi.fn()}
+        hiddenFiles={new Set()}
+        onToggleHidden={vi.fn()}
         selectedFileIndex={null}
         isNarratedView
       />,
@@ -218,6 +230,8 @@ describe('FileList', () => {
         reviewedFiles={new Set(['README.md'])}
         onToggleReviewed={onToggleReviewed}
         onToggleFolderReviewed={vi.fn()}
+        hiddenFiles={new Set()}
+        onToggleHidden={vi.fn()}
         selectedFileIndex={1}
         isNarratedView
       />,
@@ -249,6 +263,8 @@ describe('FileList', () => {
         reviewedFiles={new Set()}
         onToggleReviewed={vi.fn()}
         onToggleFolderReviewed={vi.fn()}
+        hiddenFiles={new Set()}
+        onToggleHidden={vi.fn()}
         selectedFileIndex={null}
         isNarratedView
       />,
@@ -262,5 +278,86 @@ describe('FileList', () => {
     expect(screen.getByTitle('src/client/App.tsx')).toBeInTheDocument();
     expect(screen.getByText('2')).toBeInTheDocument();
     expect(screen.queryByText('1')).not.toBeInTheDocument();
+  });
+  it('keeps hidden files listed but out of the count, the totals and the numbering', () => {
+    render(
+      <FileList
+        files={[
+          createFile('a.ts', { additions: 3, deletions: 1 }),
+          createFile('b.ts', { additions: 2, deletions: 4 }),
+        ]}
+        onScrollToFile={vi.fn()}
+        comments={[]}
+        reviewedFiles={new Set()}
+        onToggleReviewed={vi.fn()}
+        onToggleFolderReviewed={vi.fn()}
+        hiddenFiles={new Set(['b.ts'])}
+        onToggleHidden={vi.fn()}
+        selectedFileIndex={null}
+        isNarratedView
+      />,
+    );
+
+    expect(screen.getByText('Files changed (1)')).toBeInTheDocument();
+    expect(screen.getByText('1 hidden')).toBeInTheDocument();
+    expect(screen.getByLabelText('3 additions and 1 deletions')).toBeInTheDocument();
+    expect(getTreeRow('b.ts')).toHaveAttribute('data-file-hidden', 'true');
+    expect(getLabel('b.ts')).toHaveClass('italic');
+    // The hidden row holds no place in the reviewed order, so it carries no number.
+    expect(within(getTreeRow('a.ts')).getByText('1')).toBeInTheDocument();
+    expect(within(getTreeRow('b.ts')).getByText('–')).toBeInTheDocument();
+  });
+
+  it('toggles a file out of and back into the review from its eye', () => {
+    const onToggleHidden = vi.fn();
+    const onScrollToFile = vi.fn();
+    const props = {
+      files: [createFile('a.ts'), createFile('b.ts')],
+      onScrollToFile,
+      comments: [],
+      reviewedFiles: new Set<string>(),
+      onToggleReviewed: vi.fn(),
+      onToggleFolderReviewed: vi.fn(),
+      onToggleHidden,
+      selectedFileIndex: null,
+    };
+    const { rerender } = render(<FileList {...props} hiddenFiles={new Set()} />);
+
+    fireEvent.click(
+      within(getTreeRow('b.ts')).getByRole('button', {
+        name: 'Hide this file from the review and the AI',
+      }),
+    );
+    expect(onToggleHidden).toHaveBeenCalledWith('b.ts');
+
+    rerender(<FileList {...props} hiddenFiles={new Set(['b.ts'])} />);
+
+    // A hidden file has no diff section left to scroll to.
+    fireEvent.click(getTreeRow('b.ts'));
+    expect(onScrollToFile).not.toHaveBeenCalled();
+
+    fireEvent.click(
+      within(getTreeRow('b.ts')).getByRole('button', { name: 'Show this file again' }),
+    );
+    expect(onToggleHidden).toHaveBeenCalledTimes(2);
+  });
+  it('leaves a folder unstruck while it holds nothing but hidden files', () => {
+    const props = {
+      files: [createFile('src/cli/index.ts'), createFile('src/client/App.tsx')],
+      onScrollToFile: vi.fn(),
+      comments: [],
+      reviewedFiles: new Set(['src/client/App.tsx']),
+      onToggleReviewed: vi.fn(),
+      onToggleFolderReviewed: vi.fn(),
+      onToggleHidden: vi.fn(),
+      selectedFileIndex: null,
+    };
+    render(<FileList {...props} hiddenFiles={new Set(['src/cli/index.ts'])} />);
+
+    // Nothing in cli is up for review, so it reads as neither done nor pending.
+    expect(getLabel('cli')).not.toHaveClass('line-through');
+    expect(getLabel('client')).toHaveClass('line-through');
+    // src has one reviewable file left and it is reviewed.
+    expect(getLabel('src')).toHaveClass('line-through');
   });
 });

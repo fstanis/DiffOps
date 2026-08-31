@@ -46,6 +46,7 @@ import { useExpandedLines, type MergedChunk } from './hooks/useExpandedLines';
 import { useKeyboardNavigation } from './hooks/useKeyboardNavigation';
 import { useLazyDiffRendering } from './hooks/useLazyDiffRendering';
 import { useAiSettings } from './hooks/useAiSettings';
+import { useHiddenFiles } from './hooks/useHiddenFiles';
 import { useNarration } from './hooks/useNarration';
 import { useViewedFiles } from './hooks/useViewedFiles';
 import { useViewport } from './hooks/useViewport';
@@ -273,8 +274,21 @@ function App({
   const serverCommentVersionRef = useRef<number | null>(null);
   const pendingBootstrapAfterLocalResetRef = useRef(false);
 
+  // Hidden files are a per-repository preference, so they load once a diff names the repository.
+  const { hiddenFiles, toggleFileHidden } = useHiddenFiles(
+    diffData ? (diffData.repositoryId ?? 'default') : null,
+  );
+  const allFiles = diffData?.files ?? EMPTY_DIFF_FILES;
+  // Everything downstream — the diff pane, navigation, the review counters and
+  // every AI prompt — works off this list, so hiding a file removes it from all of them.
+  const visibleFiles = useMemo(
+    () =>
+      hiddenFiles.size === 0 ? allFiles : allFiles.filter((file) => !hiddenFiles.has(file.path)),
+    [allFiles, hiddenFiles],
+  );
+
   const narration = useNarration({
-    files: diffData?.files ?? EMPTY_DIFF_FILES,
+    files: visibleFiles,
     commitLabel: diffData?.commit ?? '',
     sessionQueryString: commentSessionQueryString,
     aiSettings,
@@ -416,9 +430,7 @@ function App({
 
   const toggleFolderReviewed = useCallback(
     async (folderPath: string, reviewed: boolean) => {
-      if (!diffData) return;
-
-      const folderFiles = diffData.files.filter((file) => file.path.startsWith(`${folderPath}/`));
+      const folderFiles = visibleFiles.filter((file) => file.path.startsWith(`${folderPath}/`));
       if (folderFiles.length === 0) return;
 
       await setFilesViewed(folderFiles, reviewed);
@@ -435,7 +447,7 @@ function App({
         return newSet;
       });
     },
-    [diffData, setFilesViewed],
+    [visibleFiles, setFilesViewed],
   );
 
   const toggleFileCollapsed = useCallback((filePath: string) => {
@@ -452,15 +464,13 @@ function App({
 
   const toggleAllFilesCollapsed = useCallback(
     (shouldCollapse: boolean) => {
-      if (!diffData) return;
-
       if (shouldCollapse) {
-        setCollapsedFiles(new Set(diffData.files.map((f) => f.path)));
+        setCollapsedFiles(new Set(visibleFiles.map((f) => f.path)));
       } else {
         setCollapsedFiles(new Set());
       }
     },
-    [diffData],
+    [visibleFiles],
   );
 
   const handleMobileFileSelected = useCallback(() => {
@@ -537,11 +547,32 @@ function App({
 
   // The single ordering source of truth; sidebar, main scroll, cursor, and anchors all consume this array.
   const displayFiles = useMemo(() => {
-    if (!isNarrationActive || !narration.narration || !diffData) {
-      return diffData?.files ?? EMPTY_DIFF_FILES;
+    if (!isNarrationActive || !narration.narration) {
+      return visibleFiles;
     }
-    return orderFilesByNarration(diffData.files, narration.narration);
-  }, [isNarrationActive, narration.narration, diffData]);
+    return orderFilesByNarration(visibleFiles, narration.narration);
+  }, [isNarrationActive, narration.narration, visibleFiles]);
+
+  // The sidebar keeps listing hidden files — dimmed, and after the narrated
+  // order — so the eye that hid them is also the way back.
+  const sidebarFiles = useMemo(() => {
+    if (hiddenFiles.size === 0) {
+      return displayFiles;
+    }
+    if (!isNarrationActive) {
+      return allFiles;
+    }
+    return [...displayFiles, ...allFiles.filter((file) => hiddenFiles.has(file.path))];
+  }, [hiddenFiles, displayFiles, allFiles, isNarrationActive]);
+
+  const viewedVisibleFileCount = useMemo(
+    () => visibleFiles.filter((file) => viewedFiles.has(file.path)).length,
+    [visibleFiles, viewedFiles],
+  );
+  const remainingReviewRatio =
+    visibleFiles.length === 0
+      ? 0
+      : (visibleFiles.length - viewedVisibleFileCount) / visibleFiles.length;
 
   const navigableFiles = useMemo(() => {
     if (displayFiles.length === 0) return [];
@@ -1139,8 +1170,8 @@ function App({
 
   useEffect(() => {
     if (
-      viewedFiles.size === diffData?.files.length &&
-      diffData?.files.length &&
+      visibleFiles.length > 0 &&
+      viewedVisibleFileCount === visibleFiles.length &&
       !hasTriggeredSparkles
     ) {
       setShowSparkles(true);
@@ -1148,10 +1179,10 @@ function App({
       setTimeout(() => {
         setShowSparkles(false);
       }, 1000);
-    } else if (viewedFiles.size < (diffData?.files.length ?? 0)) {
+    } else if (viewedVisibleFileCount < visibleFiles.length) {
       setHasTriggeredSparkles(false);
     }
-  }, [viewedFiles.size, diffData, hasTriggeredSparkles]);
+  }, [viewedVisibleFileCount, visibleFiles.length, hasTriggeredSparkles]);
 
   useEffect(() => {
     if (!hasBootstrappedComments) {
@@ -1393,9 +1424,9 @@ function App({
               )}
               <div className="flex flex-col gap-1 items-center">
                 <div className="text-xs relative">
-                  {viewedFiles.size === diffData.files.length
+                  {viewedVisibleFileCount === visibleFiles.length
                     ? 'All diffs diffops-ed!'
-                    : `${viewedFiles.size} / ${diffData.files.length} files viewed`}
+                    : `${viewedVisibleFileCount} / ${visibleFiles.length} files viewed`}
                   <SparkleAnimation isActive={showSparkles} />
                 </div>
                 <div
@@ -1408,13 +1439,10 @@ function App({
                   <div
                     className="absolute top-0 right-0 h-full transition-all duration-300 ease-out"
                     style={{
-                      width: `${((diffData.files.length - viewedFiles.size) / diffData.files.length) * 100}%`,
+                      width: `${remainingReviewRatio * 100}%`,
                       backgroundColor: (() => {
-                        const remainingPercent =
-                          ((diffData.files.length - viewedFiles.size) / diffData.files.length) *
-                          100;
-                        if (remainingPercent > 50) return 'var(--color-github-accent)';
-                        if (remainingPercent > 20) return 'var(--color-github-warning)';
+                        if (remainingReviewRatio > 0.5) return 'var(--color-github-accent)';
+                        if (remainingReviewRatio > 0.2) return 'var(--color-github-warning)';
                         return 'var(--color-github-danger)';
                       })(),
                     }}
@@ -1511,13 +1539,15 @@ function App({
                 />
                 <div className="flex-1 min-h-0">
                   <FileList
-                    files={displayFiles}
+                    files={sidebarFiles}
                     onScrollToFile={handleSidebarFileSelect}
                     onFileSelected={isMobile ? handleMobileFileSelected : undefined}
                     comments={normalizedThreads}
                     reviewedFiles={viewedFiles}
                     onToggleReviewed={toggleFileReviewed}
                     onToggleFolderReviewed={toggleFolderReviewed}
+                    hiddenFiles={hiddenFiles}
+                    onToggleHidden={toggleFileHidden}
                     selectedFileIndex={cursor?.fileIndex ?? null}
                     isNarratedView={isNarrationActive}
                   />

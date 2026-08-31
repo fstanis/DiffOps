@@ -10,6 +10,7 @@ import {
   getStandaloneStore,
   type StandaloneStore,
   type StoredFileExplanation,
+  type StoredHiddenFiles,
   type StoredNarration,
 } from './persistence/standaloneStore';
 import {
@@ -252,6 +253,47 @@ export const installLocalApiBridge = (options: LocalApiBridgeOptions = {}): Loca
       return jsonResponse({ error: 'Failed to persist narration' }, 500);
     }
     return jsonResponse({ success: true });
+  };
+
+  const handleHiddenFilesGet = async (key: string): Promise<Response> => {
+    let stored: StoredHiddenFiles | undefined;
+    try {
+      stored = await store.loadHiddenFiles(key);
+    } catch (error) {
+      console.warn('diffops: failed to load hidden files:', error);
+    }
+    return jsonResponse({ paths: stored?.paths ?? [] });
+  };
+
+  const handleHiddenFilesPut = async (
+    init: RequestInit | undefined,
+    key: string,
+  ): Promise<Response> => {
+    let paths: string[] | null = null;
+    try {
+      const parsed = parseThreadsPayload(init);
+      if (
+        isPlainObject(parsed) &&
+        Array.isArray(parsed.paths) &&
+        parsed.paths.every((path) => typeof path === 'string')
+      ) {
+        paths = parsed.paths as string[];
+      }
+    } catch {
+      paths = null;
+    }
+
+    if (!paths) {
+      return jsonResponse({ error: 'Invalid hidden files payload' }, 400);
+    }
+
+    try {
+      await store.saveHiddenFiles(key, paths);
+    } catch (error) {
+      console.warn('diffops: failed to persist hidden files:', error);
+      return jsonResponse({ error: 'Failed to persist hidden files' }, 500);
+    }
+    return jsonResponse({ success: true, paths });
   };
 
   const isFileExplanationShape = (value: unknown): value is FileExplanation =>
@@ -503,6 +545,15 @@ export const installLocalApiBridge = (options: LocalApiBridgeOptions = {}): Loca
         return handleNarrationPut(init, key);
       }
       return handleNarrationGet(key);
+    }
+
+    // Hidden files are a per-repository preference, so they outlive the selection comments are keyed by.
+    if (requestUrl.pathname === '/api/hidden-files') {
+      const key = current?.repositoryId ?? 'default';
+      if (init?.method === 'PUT' || init?.method === 'POST') {
+        return handleHiddenFilesPut(init, key);
+      }
+      return handleHiddenFilesGet(key);
     }
 
     if (requestUrl.pathname === '/api/explanation') {

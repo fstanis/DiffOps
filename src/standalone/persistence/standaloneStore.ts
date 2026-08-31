@@ -8,10 +8,12 @@ const COMMENT_SESSIONS_STORE = 'commentSessions';
 const NARRATIONS_STORE = 'narrations';
 const FILE_EXPLANATIONS_STORE = 'fileExplanations';
 const REGISTERED_REPOSITORIES_STORE = 'registeredRepositories';
+const HIDDEN_FILES_STORE = 'hiddenFiles';
 // v3 added narrations; v4 added file explanations; v5 replaced the recent-diff
-// and last-repository stores with registered repositories — raise again when
-// the set of stores changes, since the upgrade drops the ones no longer listed.
-const DATABASE_VERSION = 5;
+// and last-repository stores with registered repositories; v6 added hidden
+// files — raise again when the set of stores changes, since the upgrade drops
+// the ones no longer listed.
+const DATABASE_VERSION = 6;
 
 /** A persisted comment session: threads plus the version the next writer must base on. */
 export interface StoredCommentSession {
@@ -36,6 +38,16 @@ export interface StoredFileExplanation {
   /** Supporting files already included in the prompt; empty when only the first round ran. */
   includedSupportingFiles: string[];
   fingerprint: string;
+  updatedAt: string;
+}
+
+/**
+ * The paths a reviewer hid, persisted per repository: hiding a file is a
+ * durable "never show me this one" preference, so it outlives any single
+ * revision selection.
+ */
+export interface StoredHiddenFiles {
+  paths: string[];
   updatedAt: string;
 }
 
@@ -118,6 +130,17 @@ export class StandaloneStore {
     });
   }
 
+  async loadHiddenFiles(key: string): Promise<StoredHiddenFiles | undefined> {
+    return this.kv.get<StoredHiddenFiles>(HIDDEN_FILES_STORE, key);
+  }
+
+  async saveHiddenFiles(key: string, paths: string[]): Promise<void> {
+    await this.kv.put<StoredHiddenFiles>(HIDDEN_FILES_STORE, key, {
+      paths,
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
   /** Registers a folder, replacing any registration under the same name. */
   async registerRepository(folderName: string, handle: PickedDirectoryHandle): Promise<void> {
     await this.kv.put<RegisteredRepository>(REGISTERED_REPOSITORIES_STORE, folderName, {
@@ -157,6 +180,7 @@ const openBestEffortStore = (): StandaloneStore => {
           NARRATIONS_STORE,
           FILE_EXPLANATIONS_STORE,
           REGISTERED_REPOSITORIES_STORE,
+          HIDDEN_FILES_STORE,
         ],
         { version: DATABASE_VERSION },
       ),
