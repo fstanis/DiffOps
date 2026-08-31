@@ -12,11 +12,32 @@ export interface Lg2FileSystem {
   readFile(path: string, options: { encoding: 'utf8' }): string;
   analyzePath(path: string): { exists: boolean; object?: { isFolder?: boolean } };
   chdir(path: string): void;
+  /** Emscripten's syscall failure; the layer above turns it into `-errno`. */
+  ErrnoError: new (errno: number) => { name: string; errno: number };
+}
+
+/** An open file in the emulated FS, addressed by its absolute mount path. */
+export interface Lg2Stream {
+  path: string;
+}
+
+/** The lazily-read File mount; its stream ops are the seam for read failures. */
+export interface Lg2WorkerFileSystem {
+  stream_ops: {
+    read(
+      this: void,
+      stream: Lg2Stream,
+      buffer: Uint8Array,
+      offset: number,
+      length: number,
+      position: number,
+    ): number;
+  };
 }
 
 export interface Lg2Module {
   FS: Lg2FileSystem & { filesystems: Record<string, unknown> };
-  WORKERFS: unknown;
+  WORKERFS: Lg2WorkerFileSystem;
   callMain(args: string[]): number;
   /** Runs lg2 with stdout/stderr captured; throws `<exitCode>: <stderr>` on failure. */
   callWithOutput(args: string[]): string;

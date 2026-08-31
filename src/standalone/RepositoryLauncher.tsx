@@ -1,5 +1,5 @@
 import { FolderGit2, FolderPlus, X } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Logo } from './components/Logo';
 import { MessageBanner } from './components/MessageBanner';
@@ -22,7 +22,9 @@ const DESKTOP_CHROMIUM_MESSAGE =
   'DiffOps reads repository folders through the File System Access API, so it needs a desktop Chromium browser such as Chrome or Edge.';
 
 // Window names outlive the launcher, so re-pressing a repository after a reload still finds its window.
-const repositoryWindowName = (folderName: string): string => `diffops-${folderName}`;
+const REPOSITORY_WINDOW_NAME_PREFIX = 'diffops-';
+const repositoryWindowName = (folderName: string): string =>
+  `${REPOSITORY_WINDOW_NAME_PREFIX}${folderName}`;
 
 const isBlankWindow = (candidate: Window): boolean => {
   try {
@@ -42,6 +44,10 @@ export function RepositoryLauncher() {
   const [permissionByFolder, setPermissionByFolder] = useState<Record<string, PermissionName>>({});
   const [grantedFolderName, setGrantedFolderName] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  // Windows opened during this launcher session, so a re-press can reuse one
+  // without navigating it. Empty after a launcher reload, which just means the
+  // repository is opened by URL and re-read.
+  const openedWindowsRef = useRef(new Map<string, Window>());
 
   const isDirectoryPickerSupported =
     typeof window !== 'undefined' && Boolean((window as PickerWindow).showDirectoryPicker);
@@ -67,6 +73,16 @@ export function RepositoryLauncher() {
   useEffect(() => {
     void reloadRepositories();
   }, [reloadRepositories]);
+
+  // A repository window that falls back to the launcher (Home with no opener,
+  // or the browser's Back) keeps the name window.open gave it, so opening that
+  // same repository again would target this very window and load it inline.
+  // Dropping the name makes every open a real new window again.
+  useEffect(() => {
+    if (window.name.startsWith(REPOSITORY_WINDOW_NAME_PREFIX)) {
+      window.name = '';
+    }
+  }, []);
 
   const registerRepository = useCallback(async () => {
     const picker = (window as PickerWindow).showDirectoryPicker;
@@ -109,17 +125,30 @@ export function RepositoryLauncher() {
   // Nothing may be awaited before window.open: the press's transient activation
   // is what lets the pop-up through, and it does not survive a round trip.
   const openRepositoryWindow = useCallback((folderName: string) => {
-    // An empty URL reuses an already-open window without navigating it, so its folder is not re-read.
-    const target = window.open('', repositoryWindowName(folderName));
+    const windowName = repositoryWindowName(folderName);
+    const repositoryUrl = new URL(
+      buildRepositoryHash(folderName, null),
+      window.location.href,
+    ).toString();
+    // Chrome picks app window vs. browser window from the URL handed to
+    // window.open, and never revisits that choice: opening about:blank always
+    // lands in the browser, so navigating it afterwards only earns the
+    // "Open in DiffOps" banner. A first open therefore goes straight to the
+    // in-scope URL. Windows this launcher opened itself are reused with an
+    // empty URL instead, so re-pressing a repository does not re-read it.
+    const known = openedWindowsRef.current.get(windowName);
+    const isReusable = known !== undefined && !known.closed;
+    const target = window.open(isReusable ? '' : repositoryUrl, windowName);
     if (!target) {
       setErrorMessage(`Allow pop-ups for DiffOps to open "${folderName}" in its own window.`);
       return;
     }
-    if (isBlankWindow(target)) {
-      target.location.href = new URL(
-        buildRepositoryHash(folderName, null),
-        window.location.href,
-      ).toString();
+    openedWindowsRef.current.set(windowName, target);
+    // A window named by an earlier launcher session is unknown to this one, so
+    // it is opened by URL and Chrome reuses it; a genuinely blank one still
+    // needs the navigation.
+    if (isReusable && isBlankWindow(target)) {
+      target.location.href = repositoryUrl;
     }
     target.focus();
   }, []);

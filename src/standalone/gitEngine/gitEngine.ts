@@ -20,6 +20,7 @@ import {
 import { isGeneratedFile } from '../../utils/generated-file-check';
 import { parseUnifiedDiff } from '../../utils/unifiedDiff';
 import { createWorkerGitClient, type GitWorkerClient } from './gitWorkerClient';
+import type { GitRunResult } from './protocol';
 import {
   findUnsupportedIndexEntries,
   parseGitIndex,
@@ -96,6 +97,15 @@ export interface DiffSelectionParams {
   baseMode?: string;
 }
 
+/** Re-reads the picked folder, yielding File snapshots of its current state. */
+export type RepositoryFileSupplier = () => Promise<WalkedFile[]>;
+
+const staleFilesSummary = (stalePaths: string[]): string =>
+  `${stalePaths.length} file(s) changed on disk while they were being read (e.g. "${stalePaths[0]}")`;
+
+const staleFilesMessage = (stalePaths: string[]): string =>
+  `${staleFilesSummary(stalePaths)}; refresh to review the current state`;
+
 export interface RepositoryInfo {
   repoName: string;
   repositoryId: string;
@@ -124,9 +134,19 @@ export class GitEngine implements RepositoryEngine {
   private repoName = '';
   private repositoryIdValue = '';
   private selection = DEFAULT_SELECTION;
+  private supplyFiles: RepositoryFileSupplier | null = null;
+  private resupplying: Promise<void> | null = null;
 
   constructor(client: GitWorkerClient) {
     this.client = client;
+  }
+
+  /**
+   * Installs the re-read used when mounted snapshots go stale. Without one, a
+   * file edited after the walk fails every read until the user refreshes.
+   */
+  setFileSupplier(supply: RepositoryFileSupplier): void {
+    this.supplyFiles = supply;
   }
 
   get repositoryId(): string | null {
@@ -280,11 +300,7 @@ export class GitEngine implements RepositoryEngine {
   async blob(path: string, ref: string): Promise<GitBlob> {
     const cleanPath = this.normalizeRepositoryPath(path);
     if (ref === 'working' || ref === '.') {
-      const file = this.files.get(cleanPath);
-      if (!file) {
-        throw new Error('File not found');
-      }
-      return { kind: 'bytes', bytes: new Uint8Array(await file.arrayBuffer()) };
+      return { kind: 'bytes', bytes: await this.readWorktreeFile(cleanPath) };
     }
 
     const sha =
@@ -292,7 +308,7 @@ export class GitEngine implements RepositoryEngine {
         ? await this.stagedBlobSha(cleanPath)
         : await this.refBlobSha(cleanPath, ref);
 
-    const textResult = await this.client.run(['cat-file', '-p', sha]);
+    const textResult = await this.run(['cat-file', '-p', sha]);
     if (textResult.exitCode !== 0) {
       throw new Error('File not found');
     }
@@ -389,7 +405,7 @@ export class GitEngine implements RepositoryEngine {
   }
 
   private async resolveHash(commitish: string): Promise<string> {
-    const result = await this.client.run(['rev-parse', commitish]);
+    const result = await this.run(['rev-parse', commitish]);
     const hash = result.stdout.trim();
     if (result.exitCode !== 0 || !/^[0-9a-f]{40}$/.test(hash)) {
       throw new Error(result.stderr.trim() || `Unknown revision "${commitish}"`);
@@ -435,7 +451,7 @@ export class GitEngine implements RepositoryEngine {
   }
 
   private async findRootCommit(): Promise<string> {
-    const result = await this.client.run(['rev-list', 'HEAD']);
+    const result = await this.run(['rev-list', 'HEAD']);
     const hashes = result.stdout
       .split('\n')
       .map((line) => line.trim())
@@ -493,7 +509,7 @@ export class GitEngine implements RepositoryEngine {
   }
 
   private async refBlobSha(path: string, ref: string): Promise<string> {
-    const result = await this.client.run(['rev-parse', `${ref}:${path}`]);
+    const result = await this.run(['rev-parse', `${ref}:${path}`]);
     const sha = result.stdout.trim();
     if (result.exitCode !== 0 || !/^[0-9a-f]{40}$/.test(sha)) {
       throw new Error('File not found');
@@ -523,11 +539,69 @@ export class GitEngine implements RepositoryEngine {
   }
 
   private async mustRun(args: string[]): Promise<{ stdout: string; stderr: string }> {
-    const result = await this.client.run(args);
+    const result = await this.run(args);
+    if (result.stalePaths.length > 0) {
+      throw new Error(staleFilesMessage(result.stalePaths));
+    }
     if (result.exitCode !== 0) {
       throw new Error(result.stderr.trim() || `git ${args[0]} failed`);
     }
     return result;
+  }
+
+  // A command that read a file changed since the walk is retried once against
+  // a freshly mounted snapshot: editing the repository under review is the
+  // normal case, and the browser invalidates every picked File the moment its
+  // file changes on disk.
+  private async run(args: string[]): Promise<GitRunResult> {
+    const result = await this.client.run(args);
+    if (result.stalePaths.length === 0 || !this.supplyFiles) {
+      return result;
+    }
+    console.log(
+      `[diffops git] ${staleFilesSummary(result.stalePaths)}; re-reading the folder before retrying git ${args.join(' ')}`,
+    );
+    await this.resupplyFiles();
+    return this.client.run(args);
+  }
+
+  private async readWorktreeFile(path: string): Promise<Uint8Array> {
+    const file = this.files.get(path);
+    if (!file) {
+      throw new Error('File not found');
+    }
+    try {
+      return new Uint8Array(await file.arrayBuffer());
+    } catch (error) {
+      if (!this.supplyFiles) {
+        throw error;
+      }
+      console.log(
+        `[diffops git] "${path}" changed on disk since it was read; re-reading the folder`,
+      );
+      await this.resupplyFiles();
+      const refreshed = this.files.get(path);
+      if (!refreshed) {
+        throw new Error('File not found');
+      }
+      return new Uint8Array(await refreshed.arrayBuffer());
+    }
+  }
+
+  /** Concurrent stale reads share one walk; each command still retries once. */
+  private async resupplyFiles(): Promise<void> {
+    const supply = this.supplyFiles;
+    if (!supply) {
+      return;
+    }
+    this.resupplying ??= supply()
+      .then(async (files) => {
+        await this.refresh(files);
+      })
+      .finally(() => {
+        this.resupplying = null;
+      });
+    await this.resupplying;
   }
 
   private async readRepositoryText(path: string): Promise<string | null> {

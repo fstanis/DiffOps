@@ -11,6 +11,7 @@ import {
   queryReadPermission,
   requestReadPermission,
   type PickedDirectoryHandle,
+  type WalkedFile,
 } from './gitEngine/walkDirectory';
 import { walkRepositoryHandle } from './gitEngine/walkRepository';
 import { watchRepository, type RepositoryWatcher } from './gitEngine/watchRepository';
@@ -133,6 +134,9 @@ export function RepositoryWindow({
   const engineRef = useRef<GitEngine | null>(null);
   const handleRef = useRef<PickedDirectoryHandle | null>(null);
   const watcherRef = useRef<RepositoryWatcher | null>(null);
+  // The header button and the refresh hotkey share one gesture; a second one
+  // landing mid-walk would only re-read the same folder again.
+  const isRefreshingRef = useRef(false);
 
   useEffect(() => {
     document.title = folderName;
@@ -158,6 +162,22 @@ export function RepositoryWindow({
       },
     });
   }, []);
+
+  // The engine walks again on its own when a mounted file has changed on disk
+  // since it was read: the browser invalidates that file's snapshot outright,
+  // so every later read of it fails until a fresh one replaces it.
+  const supplyRepositoryFiles = useCallback(
+    async (handle: PickedDirectoryHandle): Promise<WalkedFile[]> => {
+      try {
+        const walk = await readRepositoryFolder(handle);
+        reportMissingTrackedPaths(handle.name, walk.missingTrackedPaths);
+        return walk.files;
+      } finally {
+        setProgress(null);
+      }
+    },
+    [readRepositoryFolder],
+  );
 
   const mountRepository = useCallback(
     async (handle: PickedDirectoryHandle) => {
@@ -185,6 +205,7 @@ export function RepositoryWindow({
           createEngine ?? (await import('./gitEngine/gitEngine')).createGitEngine
         )();
         const engine = engineRef.current;
+        engine.setFileSupplier(() => supplyRepositoryFiles(handle));
         const info = await engine.open(walk.files, handle.name);
         handleRef.current = handle;
         bridgeRef.current ??= installLocalApiBridge();
@@ -208,7 +229,7 @@ export function RepositoryWindow({
         setProgress(null);
       }
     },
-    [createEngine, readRepositoryFolder],
+    [createEngine, readRepositoryFolder, supplyRepositoryFiles],
   );
 
   // Purely cosmetic signalling: the watcher only lights the Refresh button
@@ -303,9 +324,10 @@ export function RepositoryWindow({
   const refreshRepository = useCallback(async () => {
     const handle = handleRef.current;
     const bridge = bridgeRef.current;
-    if (!handle || !bridge) {
+    if (!handle || !bridge || isRefreshingRef.current) {
       return;
     }
+    isRefreshingRef.current = true;
     setErrorMessage('');
     // Cleared up front so changes landing mid-refresh re-light the button.
     setHasDiskChanges(false);
@@ -316,6 +338,12 @@ export function RepositoryWindow({
         return;
       }
       reportMissingTrackedPaths(handle.name, walk.missingTrackedPaths);
+      setProgress({
+        label: 'Refreshing the diff…',
+        filesFound: walk.files.length,
+        bytesFound: 0,
+        totalFiles: 0,
+      });
       const mountWarnings = await bridge.refreshRepository(walk.files);
       setWarnings([
         ...walkWarnings(walk.unreadablePaths),
@@ -325,6 +353,7 @@ export function RepositoryWindow({
     } catch (refreshError) {
       setErrorMessage(toMessage(refreshError, 'Failed to refresh the repository'));
     } finally {
+      isRefreshingRef.current = false;
       setProgress(null);
     }
   }, [readRepositoryFolder]);
@@ -462,6 +491,7 @@ export function RepositoryWindow({
         routeSelection={routeSelection}
         onSelectionChange={onSelectionChange}
         headerActions={headerActions}
+        onRefreshRepository={() => void refreshRepository()}
       />
       {banners(true)}
       {progressOverlay}

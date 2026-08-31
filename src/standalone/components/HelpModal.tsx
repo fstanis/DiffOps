@@ -266,7 +266,7 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
                   </kbd>
                 </div>
                 <span className="text-github-text-secondary">
-                  Refresh diff when changes detected
+                  Re-read the repository folder and refresh the diff
                 </span>
               </div>
               <div className="flex justify-between text-sm">

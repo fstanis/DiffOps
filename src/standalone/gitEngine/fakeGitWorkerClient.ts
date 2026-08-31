@@ -6,12 +6,26 @@ import { deflateSync } from 'node:zlib';
 import type { GitWorkerClient } from './gitWorkerClient';
 import type { GitRunResult, RepoFile } from './protocol';
 
-export const runOk = (stdout: string): GitRunResult => ({ stdout, stderr: '', exitCode: 0 });
+export const runOk = (stdout: string): GitRunResult => ({
+  stdout,
+  stderr: '',
+  exitCode: 0,
+  stalePaths: [],
+});
 
 export const runFail = (stderr: string, exitCode = 1): GitRunResult => ({
   stdout: '',
   stderr,
   exitCode,
+  stalePaths: [],
+});
+
+/** A command the worker could not finish because those files changed on disk. */
+export const runStale = (stalePaths: string[]): GitRunResult => ({
+  stdout: '',
+  stderr: 'failed to read file',
+  exitCode: 1,
+  stalePaths,
 });
 
 export type FakeRunHandler = (args: string[]) => GitRunResult;
@@ -26,6 +40,7 @@ export interface FakeGitWorkerClientOptions {
 
 export class FakeGitWorkerClient implements GitWorkerClient {
   readonly runCalls: string[][] = [];
+  readonly mountedFiles: RepoFile[][] = [];
   mountedRepoNames: string[] = [];
   private readonly repositoryFiles: Map<string, Uint8Array>;
   private mountWarnings: string[];
@@ -52,7 +67,7 @@ export class FakeGitWorkerClient implements GitWorkerClient {
 
   mount(repoName: string, files: RepoFile[]): Promise<string[]> {
     this.mountedRepoNames.push(repoName);
-    void files;
+    this.mountedFiles.push(files);
     return Promise.resolve([...this.mountWarnings]);
   }
 

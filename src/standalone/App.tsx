@@ -34,10 +34,8 @@ import { DiffQuickMenu } from './components/DiffQuickMenu';
 import { DiffViewer } from './components/DiffViewer';
 import { FileList } from './components/FileList';
 import { HelpModal } from './components/HelpModal';
-import { Logo } from './components/Logo';
 import { NarrationCard } from './components/NarrationCard';
 import { NarrationToggle } from './components/NarrationToggle';
-import { ReloadButton } from './components/ReloadButton';
 import { RevisionDetailModal } from './components/RevisionDetailModal';
 import { SettingsModal } from './components/SettingsModal';
 import { SparkleAnimation } from './components/SparkleAnimation';
@@ -148,9 +146,16 @@ interface AppProps {
   onSelectionChange?: (selection: DiffSelection) => void;
   /** Window-level icon buttons the shell mounts into the header, next to Settings. */
   headerActions?: React.ReactNode;
+  /** The shell's Refresh gesture; without it the refresh hotkey only refetches the diff. */
+  onRefreshRepository?: () => void;
 }
 
-function App({ routeSelection = null, onSelectionChange, headerActions }: AppProps) {
+function App({
+  routeSelection = null,
+  onSelectionChange,
+  headerActions,
+  onRefreshRepository,
+}: AppProps) {
   const [diffData, setDiffData] = useState<DiffResponse | null>(null);
   const [diffDataVersion, setDiffDataVersion] = useState(0);
   const [fileViewModes, setFileViewModes] = useState<FileViewModesByPath>({});
@@ -665,31 +670,14 @@ function App({ routeSelection = null, onSelectionChange, headerActions }: AppPro
     }
   }, [commentsContextKey, fetchServerThreads, replaceThreads]);
 
-  // Bridge refreshes offer the reload button instead of refetching under the user, so cursor, collapse, and scroll state survive.
-  const [shouldReload, setShouldReload] = useState(false);
-  const [isReloading, setIsReloading] = useState(false);
-  const reload = useCallback(async () => {
-    if (isReloading) {
-      return;
-    }
-    setIsReloading(true);
-    try {
-      await fetchDiffDataRef.current?.();
-      setShouldReload(false);
-    } finally {
-      setIsReloading(false);
-    }
-  }, [isReloading]);
-
+  // A bridge refresh only ever follows an explicit click on the repository
+  // Refresh button, so refetching here finishes that one gesture rather than
+  // pulling the diff out from under the reader.
   useEffect(
     () =>
-      subscribeToBridgeEvents((event) => {
-        if (event.type === 'reload') {
-          setShouldReload(true);
-        } else {
-          void handleCommentsChanged();
-        }
-      }),
+      subscribeToBridgeEvents((event) =>
+        event.type === 'reload' ? fetchDiffDataRef.current?.() : handleCommentsChanged(),
+      ),
     [handleCommentsChanged],
   );
 
@@ -728,7 +716,11 @@ function App({ routeSelection = null, onSelectionChange, headerActions }: AppPro
         setIsCommentsListOpen(true);
       },
       onRefresh: () => {
-        void reload();
+        if (onRefreshRepository) {
+          onRefreshRepository();
+          return;
+        }
+        void fetchDiffDataRef.current?.();
       },
       onScrollToFile: scrollFileSectionIntoView,
     });
@@ -1319,8 +1311,8 @@ function App({ routeSelection = null, onSelectionChange, headerActions }: AppPro
           }`}
         >
           <div
-            className={`flex items-center justify-between w-full ${
-              isMobile ? 'px-3 py-2 gap-3' : 'px-4 py-3 gap-4 w-auto'
+            className={`flex items-center justify-between w-full overflow-hidden ${
+              isMobile ? 'px-3 py-2 gap-3' : 'px-4 py-3 gap-2 w-auto'
             } ${!isDragging ? '!transition-all !duration-300 !ease-in-out' : ''}`}
             style={{
               width: isMobile ? '100%' : isFileTreeOpen ? `${sidebarWidth}px` : 'auto',
@@ -1328,15 +1320,10 @@ function App({ routeSelection = null, onSelectionChange, headerActions }: AppPro
               maxWidth: isMobile ? 'none' : isFileTreeOpen ? '600px' : 'none',
             }}
           >
-            <h1>
-              <Logo
-                style={{
-                  height: '18px',
-                  color: 'var(--color-github-text-secondary)',
-                }}
-              />
+            <h1 className="min-w-0 truncate text-base font-semibold text-github-text-primary">
+              DiffOps
             </h1>
-            <div className="flex items-center gap-1">
+            <div className="flex shrink-0 items-center gap-1">
               <button
                 onClick={() => setIsFileTreeOpen(!isFileTreeOpen)}
                 className="p-2 text-github-text-secondary hover:text-github-text-primary hover:bg-github-bg-tertiary rounded transition-colors"
@@ -1389,12 +1376,6 @@ function App({ routeSelection = null, onSelectionChange, headerActions }: AppPro
                 <RotateCcw size={14} />
                 Reset
               </button>
-              <ReloadButton
-                shouldReload={shouldReload}
-                isReloading={isReloading}
-                onReload={reload}
-                compact={isMobile}
-              />
             </div>
             <div
               className={`flex flex-wrap items-center text-sm text-github-text-secondary ${
@@ -1501,7 +1482,7 @@ function App({ routeSelection = null, onSelectionChange, headerActions }: AppPro
           >
             <aside
               id="file-tree-panel"
-              className={`bg-github-bg-secondary overflow-y-auto flex flex-col ${
+              className={`bg-github-bg-secondary overflow-hidden flex flex-col ${
                 isMobile
                   ? 'fixed inset-y-0 right-0 z-40 w-[min(85vw,360px)] border-l border-github-border transition-transform duration-300 ease-out'
                   : 'relative border-r border-github-border'
@@ -1518,7 +1499,7 @@ function App({ routeSelection = null, onSelectionChange, headerActions }: AppPro
                   : undefined,
               }}
             >
-              <div className="flex-1 overflow-y-auto">
+              <div className="flex-1 min-h-0 flex flex-col">
                 <NarrationToggle
                   isNarratedView={narration.isNarratedView}
                   phase={narration.phase}
@@ -1528,17 +1509,19 @@ function App({ routeSelection = null, onSelectionChange, headerActions }: AppPro
                   onToggle={handleToggleNarratedView}
                   onRegenerate={narration.regenerate}
                 />
-                <FileList
-                  files={displayFiles}
-                  onScrollToFile={handleSidebarFileSelect}
-                  onFileSelected={isMobile ? handleMobileFileSelected : undefined}
-                  comments={normalizedThreads}
-                  reviewedFiles={viewedFiles}
-                  onToggleReviewed={toggleFileReviewed}
-                  onToggleFolderReviewed={toggleFolderReviewed}
-                  selectedFileIndex={cursor?.fileIndex ?? null}
-                  isNarratedView={isNarrationActive}
-                />
+                <div className="flex-1 min-h-0">
+                  <FileList
+                    files={displayFiles}
+                    onScrollToFile={handleSidebarFileSelect}
+                    onFileSelected={isMobile ? handleMobileFileSelected : undefined}
+                    comments={normalizedThreads}
+                    reviewedFiles={viewedFiles}
+                    onToggleReviewed={toggleFileReviewed}
+                    onToggleFolderReviewed={toggleFolderReviewed}
+                    selectedFileIndex={cursor?.fileIndex ?? null}
+                    isNarratedView={isNarrationActive}
+                  />
+                </div>
               </div>
               {!isMobile && (
                 <div className="p-4 border-t border-github-border flex justify-between items-center">

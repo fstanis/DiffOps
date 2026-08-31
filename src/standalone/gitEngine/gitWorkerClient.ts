@@ -45,6 +45,7 @@ export const createWorkerGitClient = (options: GitWorkerClientOptions = {}): Git
   let mountState: { repoName: string; files: RepoFile[] } | null = null;
   let isMounted = false;
   let mounting: Promise<string[]> | null = null;
+  let latestMountId = 0;
   // A worker that errored before completing any request (e.g. the wasm asset
   // failed to load) is not worth respawning; one that served requests and then
   // timed out is.
@@ -131,24 +132,41 @@ export const createWorkerGitClient = (options: GitWorkerClientOptions = {}): Git
       }
     });
 
+  // A refresh queues behind an in-flight mount rather than adopting its
+  // promise: adopting it reported success while the worker kept serving the
+  // older snapshot, so the refreshed files never reached the reader.
   const mount = (repoName: string, files: RepoFile[]): Promise<string[]> => {
     mountState = { repoName, files };
     isMounted = false;
-    mounting ??= send((id) => ({ id, type: 'mount', repoName, files }))
-      .then((payload) => {
+    latestMountId += 1;
+    const mountId = latestMountId;
+    const sendMount = async (): Promise<string[]> => {
+      const payload = await send((id) => ({ id, type: 'mount', repoName, files }));
+      if (payload.kind !== 'mount') {
+        throw new Error('Unexpected response from the git worker');
+      }
+      if (mountId === latestMountId) {
         isMounted = true;
-        if (payload.kind !== 'mount') {
-          throw new Error('Unexpected response from the git worker');
+      }
+      return payload.warnings;
+    };
+    const queued = mounting ? mounting.then(sendMount, sendMount) : sendMount();
+    mounting = queued;
+    void queued
+      .catch(() => [])
+      .then(() => {
+        if (mounting === queued) {
+          mounting = null;
         }
-        return payload.warnings;
-      })
-      .finally(() => {
-        mounting = null;
       });
-    return mounting;
+    return queued;
   };
 
   const ensureMounted = async (): Promise<void> => {
+    if (mounting) {
+      await mounting;
+      return;
+    }
     if (isMounted) {
       return;
     }

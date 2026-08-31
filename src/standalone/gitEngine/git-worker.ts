@@ -13,7 +13,7 @@
 // silently times out (the handler-installed-after-await bug).
 import type { GitRunResult, GitWorkerRequest, GitWorkerResponse } from './protocol';
 import { isMirroredGitPath } from './gitDirPaths';
-import type { Lg2Module, Lg2ModuleOptions } from './vendor/lg2_workerfs.js';
+import type { Lg2Module, Lg2ModuleOptions, Lg2Stream } from './vendor/lg2_workerfs.js';
 
 // The workspace tsconfig uses the DOM lib, whose global postMessage expects a
 // targetOrigin; the dedicated-worker overload takes a transfer list instead.
@@ -32,6 +32,8 @@ const GIT_FILE_ROOT = '/gitfile';
 // stat cache INTO this file, after which worktree diffs silently come back
 // empty — never run status (or any index-writing command) in this engine.
 const INDEX_FILE = '/gitindex';
+// Emscripten's errno numbering: EIO.
+const ERRNO_IO = 29;
 
 // Emscripten throws plain objects (FS.ErrnoError without message strings) and
 // callWithOutput throws strings; format anything into a readable line.
@@ -175,6 +177,41 @@ const initEngine = async (): Promise<Lg2Module> => {
 
 const lg = await initEngine();
 const FS = lg.FS;
+
+// A picked File is a point-in-time snapshot: the moment the file changes on
+// disk the browser refuses to read it, and WORKERFS reads worktree files
+// lazily, from inside libgit2's read syscall. Left alone that throws a
+// DOMException clean through the wasm frames, killing the whole command with
+// an opaque message; answering the syscall with EIO instead keeps the failure
+// inside libgit2, and the recorded paths tell the main thread which files a
+// fresh walk has to replace.
+const stalePaths = new Set<string>();
+
+const worktreeRelativePath = (path: string): string =>
+  path.startsWith(`${WORKTREE_ROOT}/`) ? path.slice(WORKTREE_ROOT.length + 1) : path;
+
+const installStaleFileGuard = (): void => {
+  const readChunk = lg.WORKERFS.stream_ops.read;
+  lg.WORKERFS.stream_ops.read = (
+    stream: Lg2Stream,
+    buffer: Uint8Array,
+    offset: number,
+    length: number,
+    position: number,
+  ): number => {
+    try {
+      return readChunk(stream, buffer, offset, length, position);
+    } catch (error) {
+      if ((error as { name?: string } | null)?.name === 'ErrnoError') {
+        throw error;
+      }
+      stalePaths.add(worktreeRelativePath(stream.path));
+      throw new FS.ErrnoError(ERRNO_IO);
+    }
+  };
+};
+
+installStaleFileGuard();
 
 // libgit2 refuses repositories owned by other users; the mirror's synthetic
 // ownership always differs from the emulated home, so allow every directory.
@@ -354,6 +391,15 @@ const mountRepository = async (files: { path: string; file: File }[]): Promise<s
 // callWithOutput throws `<exitCode>: <stderr>` on failure; recover both parts.
 const runGit = (args: string[]): GitRunResult => {
   const startedAt = performance.now();
+  stalePaths.clear();
+  const reportStalePaths = (): string[] => {
+    if (stalePaths.size > 0) {
+      notifyError(
+        `${stalePaths.size} worktree file(s) changed on disk since they were read (e.g. "${[...stalePaths][0]}")`,
+      );
+    }
+    return [...stalePaths];
+  };
   try {
     const stdout = lg.callWithOutput([
       '--index-file',
@@ -362,7 +408,7 @@ const runGit = (args: string[]): GitRunResult => {
       GIT_DIR_ROOT,
       ...args,
     ]);
-    return { stdout, stderr: '', exitCode: 0 };
+    return { stdout, stderr: '', exitCode: 0, stalePaths: reportStalePaths() };
   } catch (error) {
     const message = formatError(error);
     const exitCodeMatch = message.match(/^(-?\d+):/);
@@ -373,6 +419,7 @@ const runGit = (args: string[]): GitRunResult => {
       stdout: '',
       stderr: message.replace(/^(-?\d+):\s?/, ''),
       exitCode: exitCodeMatch?.[1] ? Number(exitCodeMatch[1]) : 1,
+      stalePaths: reportStalePaths(),
     };
   }
 };

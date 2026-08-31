@@ -546,7 +546,7 @@ export const installLocalApiBridge = (options: LocalApiBridgeOptions = {}): Loca
         return [];
       }
       const warnings = await current.engine.refresh(files);
-      broadcastBridgeEvent({ type: 'reload' });
+      await broadcastBridgeEvent({ type: 'reload' });
       return warnings;
     },
     restore: () => {

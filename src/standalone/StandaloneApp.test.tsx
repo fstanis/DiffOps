@@ -126,6 +126,7 @@ type PickerWindow = Window & {
 
 const openedWindows = new Map<string, FakeWindow>();
 const windowOpenCalls: string[] = [];
+const windowOpenUrls: string[] = [];
 let permissionRequests: string[] = [];
 let isPopupBlocked = false;
 
@@ -179,6 +180,8 @@ describe('StandaloneApp launcher', () => {
     window.history.pushState({}, '', '/');
     openedWindows.clear();
     windowOpenCalls.length = 0;
+    windowOpenUrls.length = 0;
+    window.name = '';
     permissionRequests = [];
     isPopupBlocked = false;
     confirmAnswer = true;
@@ -188,15 +191,18 @@ describe('StandaloneApp launcher', () => {
     vi.restoreAllMocks();
     delete (window as PickerWindow).showDirectoryPicker;
 
-    window.open = ((_url: string, name: string) => {
+    window.open = ((url: string, name: string) => {
       windowOpenCalls.push(name);
+      windowOpenUrls.push(url);
       if (isPopupBlocked) {
         return null;
       }
       let target = openedWindows.get(name);
       if (!target) {
+        // Browsers navigate a freshly opened window to the URL they were given
+        // and leave it blank only when that URL is empty.
         target = {
-          location: { href: 'about:blank' },
+          location: { href: url || 'about:blank' },
           focusCount: 0,
           focus() {
             this.focusCount += 1;
@@ -350,6 +356,26 @@ describe('StandaloneApp launcher', () => {
     expect(screen.getByText('needs access')).toBeInTheDocument();
   });
 
+  it('opens a new window straight at the repository URL so Chrome can make it an app window', async () => {
+    renderApp();
+    await registerViaLauncher(makeRepoHandle());
+
+    fireEvent.click(screen.getByRole('button', { name: 'repo' }));
+
+    await waitFor(() => {
+      expect(windowOpenUrls).toHaveLength(1);
+    });
+    // about:blank would open in the browser and stay there, banner and all.
+    expect(windowOpenUrls[0]).toContain('#/r/repo');
+
+    fireEvent.click(screen.getByRole('button', { name: 'repo' }));
+
+    // A window this launcher already opened is reused without a navigation.
+    await waitFor(() => {
+      expect(windowOpenUrls).toEqual([windowOpenUrls[0], '']);
+    });
+  });
+
   it('focuses an already-open window instead of navigating it again', async () => {
     renderApp();
     await registerViaLauncher(makeRepoHandle());
@@ -369,6 +395,33 @@ describe('StandaloneApp launcher', () => {
     expect(openedWindows.get('diffops-repo')?.location.href).toBe(openedHref as string);
   });
 
+  it('drops the repository window name so a launcher shown in that window still opens a new one', async () => {
+    // Home with no opener leaves the launcher in a window still named after
+    // the repository; without the reset, opening it again targets this window.
+    window.name = 'diffops-repo';
+    renderApp();
+    await registerViaLauncher(makeRepoHandle());
+
+    await waitFor(() => {
+      expect(window.name).toBe('');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'repo' }));
+
+    await waitFor(() => {
+      expect(windowOpenUrls).toHaveLength(1);
+    });
+    expect(windowOpenUrls[0]).toContain('#/r/repo');
+  });
+
+  it('leaves an unrelated window name alone', async () => {
+    window.name = 'something-else';
+    renderApp();
+    await registerViaLauncher(makeRepoHandle());
+
+    expect(window.name).toBe('something-else');
+  });
+
   it('reports a blocked pop-up instead of failing silently', async () => {
     renderApp();
     await registerViaLauncher(makeRepoHandle());
@@ -386,6 +439,8 @@ describe('StandaloneApp repository window', () => {
     window.history.pushState({}, '', '/');
     openedWindows.clear();
     windowOpenCalls.length = 0;
+    windowOpenUrls.length = 0;
+    window.name = '';
     permissionRequests = [];
     confirmAnswer = true;
     closeCount = 0;
@@ -499,14 +554,20 @@ describe('StandaloneApp repository window', () => {
     expect(client.mountedRepoNames).toEqual(['repo']);
   });
 
-  it('refreshes by re-walking and re-mounting the folder', async () => {
+  it('refreshes by re-walking, re-mounting and refetching the diff in one gesture', async () => {
     const { client } = await openRepositoryWindow();
     await screen.findByText('src/repo.ts');
+    const diffCountBefore = client.runCalls.filter((args) => args[0] === 'diff').length;
 
     fireEvent.click(screen.getByTestId('refresh-repo-button'));
 
     await waitFor(() => {
       expect(client.mountedRepoNames).toEqual(['repo', 'repo']);
+    });
+    await waitFor(() => {
+      expect(client.runCalls.filter((args) => args[0] === 'diff').length).toBeGreaterThan(
+        diffCountBefore,
+      );
     });
     expect(screen.getByText('src/repo.ts')).toBeInTheDocument();
   });
@@ -593,6 +654,8 @@ describe('StandaloneApp repository watcher', () => {
     window.history.pushState({}, '', '/');
     openedWindows.clear();
     windowOpenCalls.length = 0;
+    windowOpenUrls.length = 0;
+    window.name = '';
     permissionRequests = [];
     resetStandaloneStoreForTests();
     resetStandaloneSettingsForTests();

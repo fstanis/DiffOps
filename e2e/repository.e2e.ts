@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-import { openFixtureRepository } from './fixtureRepository';
+import { openFixtureRepository, writeFixtureFile } from './fixtureRepository';
 
 test('the fixture repository renders its working diff through the wasm engine', async ({
   page,
@@ -77,6 +77,35 @@ test('changing the revision after reading a blob without trailing newline still 
   });
   await expect(page.getByRole('heading', { name: 'src/app.ts' })).toBeVisible();
   await expect(page.getByText(/Unknown revision/)).not.toBeVisible();
+});
+
+test('one Refresh click re-reads the folder and updates the diff', async ({ page }) => {
+  await openFixtureRepository(page);
+  await expect(page.getByRole('heading', { name: 'src/app.ts' })).toBeVisible({
+    timeout: 120_000,
+  });
+
+  await writeFixtureFile(page, 'src/app.ts', '// REFRESHED_ON_DISK\n');
+  await page.getByTestId('refresh-repo-button').click();
+
+  await expect(page.getByText('REFRESHED_ON_DISK').first()).toBeVisible({ timeout: 60_000 });
+});
+
+test('a file edited after the folder was read is re-read instead of failing the diff', async ({
+  page,
+}) => {
+  await openFixtureRepository(page);
+  await expect(page.getByRole('heading', { name: 'src/app.ts' })).toBeVisible({
+    timeout: 120_000,
+  });
+
+  // No refresh: the mounted snapshot of this file is now invalid, which is
+  // what saving in an editor mid-review does to every read of it.
+  await writeFixtureFile(page, 'src/app.ts', '// EDITED_MID_REVIEW\n');
+  await page.getByRole('checkbox', { name: 'Ignore Whitespace' }).click();
+
+  await expect(page.getByText('EDITED_MID_REVIEW').first()).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByText(/Failed to compute diff|NotReadableError/)).not.toBeVisible();
 });
 
 test('a hash naming an unregistered folder explains itself and routes to the launcher', async ({

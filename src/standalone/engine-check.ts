@@ -426,6 +426,46 @@ void (async () => {
       }),
     );
 
+    results.push(
+      await runCheck('a file changed on disk is re-read instead of failing the diff', async () => {
+        // A picked File is invalidated the moment its file changes on disk, and
+        // the fixture's in-memory Files never can be; an OPFS file rewritten
+        // under the mount reproduces what editing the repository under review
+        // does to the reader.
+        const stalePath = 'docs/note.md';
+        const original = files.find((entry) => entry.path === stalePath);
+        if (!original) {
+          throw new Error(`the fixture has no "${stalePath}" to invalidate`);
+        }
+        const opfsRoot = await navigator.storage.getDirectory();
+        const opfsHandle = await opfsRoot.getFileHandle('engine-check-stale', { create: true });
+        const writeOnDisk = async (text: string): Promise<void> => {
+          const writable = await opfsHandle.createWritable();
+          await writable.write(text);
+          await writable.close();
+        };
+        const mountWith = (file: File): WalkedFile[] =>
+          files.map((entry) => (entry.path === stalePath ? { path: stalePath, file } : entry));
+
+        await writeOnDisk(await original.file.text());
+        await engine.refresh(mountWith(await opfsHandle.getFile()));
+        let walkCount = 0;
+        engine.setFileSupplier(async () => {
+          walkCount += 1;
+          return mountWith(await opfsHandle.getFile());
+        });
+
+        await writeOnDisk('rewritten after the walk\n');
+        const diff = await engine.diff({ base: 'HEAD', target: '.' }, true);
+
+        expect(walkCount === 1, `the folder was re-read ${walkCount} times, expected once`);
+        expect(
+          diff.files.some((file) => file.path === stalePath),
+          `"${stalePath}" is missing from the re-read diff: ${diff.files.map((file) => file.path).join(', ')}`,
+        );
+      }),
+    );
+
     client.dispose();
 
     const failedCount = results.filter((isPass) => !isPass).length;

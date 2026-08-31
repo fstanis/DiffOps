@@ -9,6 +9,12 @@ export interface GitRunResult {
   stdout: string;
   stderr: string;
   exitCode: number;
+  /**
+   * Worktree paths the command could not read because the picked File
+   * snapshot no longer matches the file on disk; re-walking the folder and
+   * re-mounting is what makes them readable again.
+   */
+  stalePaths: string[];
 }
 
 export type GitWorkerRequest =

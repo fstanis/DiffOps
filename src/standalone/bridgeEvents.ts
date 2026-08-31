@@ -1,7 +1,7 @@
 /** Event the local API bridge broadcasts to the mounted viewer. */
 export type BridgeEvent = { type: 'reload' } | { type: 'commentsChanged' };
 
-type BridgeEventListener = (event: BridgeEvent) => void;
+type BridgeEventListener = (event: BridgeEvent) => void | Promise<void>;
 
 const listeners = new Set<BridgeEventListener>();
 
@@ -13,8 +13,7 @@ export const subscribeToBridgeEvents = (listener: BridgeEventListener): (() => v
   };
 };
 
-export const broadcastBridgeEvent = (event: BridgeEvent): void => {
-  for (const listener of listeners) {
-    listener(event);
-  }
+/** Resolves once every listener has finished handling the event. */
+export const broadcastBridgeEvent = async (event: BridgeEvent): Promise<void> => {
+  await Promise.all([...listeners].map(async (listener) => listener(event)));
 };

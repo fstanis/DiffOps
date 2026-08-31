@@ -43,6 +43,31 @@ const installOpfsPicker = `
 
 const FIXTURE_FOLDER_NAME = 'fixture-repo';
 
+/** Rewrites a file inside the OPFS fixture, exactly as an editor save would. */
+export const writeFixtureFile = async (
+  page: Page,
+  path: string,
+  contents: string,
+): Promise<void> => {
+  await page.evaluate(
+    async ({ path, contents }) => {
+      const root = await navigator.storage.getDirectory();
+      const segments = path.split('/');
+      let directory = await root.getDirectoryHandle('fixture-repo');
+      for (const segment of segments.slice(0, -1)) {
+        directory = await directory.getDirectoryHandle(segment);
+      }
+      const handle = await directory.getFileHandle(segments[segments.length - 1] ?? path, {
+        create: true,
+      });
+      const writable = await handle.createWritable();
+      await writable.write(contents);
+      await writable.close();
+    },
+    { path, contents },
+  );
+};
+
 /** The expectations the fixture generator computed with the real git CLI. */
 interface FixtureExpectations {
   wideBase: string;

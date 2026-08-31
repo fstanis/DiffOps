@@ -7,6 +7,7 @@ import {
   type FakeRunHandler,
   runFail,
   runOk,
+  runStale,
 } from './fakeGitWorkerClient';
 import { GitEngine } from './gitEngine';
 
@@ -460,5 +461,109 @@ describe('GitEngine.refresh', () => {
     client.setMountWarnings(['Could not read .git/index: busy']);
 
     await expect(engine.refresh([])).resolves.toEqual(['Could not read .git/index: busy']);
+  });
+});
+
+describe('GitEngine stale snapshots', () => {
+  const staleThenWorking = (stalePaths: string[]): FakeRunHandler => {
+    let hasRunDiff = false;
+    return (args) => {
+      const key = args.join(' ');
+      if (key === 'rev-parse HEAD') {
+        return runOk(HEAD_HASH);
+      }
+      if (key === 'rev-list HEAD') {
+        return runOk(HEAD_HASH);
+      }
+      if (!key.startsWith('diff')) {
+        return runFail(`unexpected git command: ${key}`);
+      }
+      if (hasRunDiff) {
+        return runOk(WORKING_DIFF);
+      }
+      hasRunDiff = true;
+      return runStale(stalePaths);
+    };
+  };
+
+  it('re-reads the folder and retries a command whose files changed on disk', async () => {
+    const { engine, client } = await openEngine(staleThenWorking(['a.txt']));
+    const freshFiles = [{ path: 'a.txt', file: new File(['CHANGED\n'], 'a.txt') }];
+    engine.setFileSupplier(() => Promise.resolve(freshFiles));
+
+    const diff = await engine.diff();
+
+    expect(diff.files).toHaveLength(1);
+    expect(client.mountedFiles.at(-1)).toEqual(freshFiles);
+    expect(client.runCalls.filter((args) => args[0] === 'diff')).toHaveLength(2);
+  });
+
+  it('walks once when several stale commands overlap', async () => {
+    let hasWalked = false;
+    const { engine, client } = await openEngine((args) => {
+      const key = args.join(' ');
+      if (key === 'rev-parse HEAD' || key === 'rev-list HEAD') {
+        return runOk(HEAD_HASH);
+      }
+      if (args[0] !== 'diff') {
+        return runFail(`unexpected git command: ${key}`);
+      }
+      return hasWalked ? runOk(WORKING_DIFF) : runStale(['a.txt']);
+    });
+    let walkCount = 0;
+    let finishWalk = (files: { path: string; file: File }[]): void => void files;
+    engine.setFileSupplier(() => {
+      walkCount += 1;
+      return new Promise((resolve) => {
+        finishWalk = resolve;
+      });
+    });
+
+    const diffs = Promise.all([engine.diff(), engine.diff({ target: 'working' })]);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    hasWalked = true;
+    finishWalk([{ path: 'a.txt', file: new File(['CHANGED\n'], 'a.txt') }]);
+
+    expect(await diffs).toHaveLength(2);
+    expect(walkCount).toBe(1);
+    expect(client.mountedRepoNames).toEqual(['repo', 'repo']);
+  });
+
+  it('explains the failure when the files keep changing under the retry', async () => {
+    const { engine } = await openEngine((args) =>
+      args[0] === 'diff' ? runStale(['a.txt']) : runOk(HEAD_HASH),
+    );
+    engine.setFileSupplier(() =>
+      Promise.resolve([{ path: 'a.txt', file: new File([A_TXT], 'a.txt') }]),
+    );
+
+    await expect(engine.diff()).rejects.toThrow('changed on disk while they were being read');
+  });
+
+  it('fails without retrying when no file supplier is installed', async () => {
+    const { engine, client } = await openEngine(staleThenWorking(['a.txt']));
+
+    await expect(engine.diff()).rejects.toThrow('changed on disk while they were being read');
+    expect(client.runCalls.filter((args) => args[0] === 'diff')).toHaveLength(1);
+  });
+
+  it('re-reads a working-tree file whose snapshot went stale', async () => {
+    const staleFile = new File([A_TXT], 'a.txt');
+    Object.defineProperty(staleFile, 'arrayBuffer', {
+      value: () => Promise.reject(new Error('NotReadableError: the file changed')),
+    });
+    const { engine } = await openEngine(runAlways({ 'rev-list HEAD': runOk(HEAD_HASH) }), {
+      walked: [{ path: 'a.txt', file: staleFile }],
+    });
+    engine.setFileSupplier(() =>
+      Promise.resolve([{ path: 'a.txt', file: new File(['CHANGED\n'], 'a.txt') }]),
+    );
+
+    const blob = await engine.blob('a.txt', 'working');
+
+    expect(blob.kind).toBe('bytes');
+    expect(new TextDecoder().decode(blob.kind === 'bytes' ? blob.bytes : new Uint8Array())).toBe(
+      'CHANGED\n',
+    );
   });
 });

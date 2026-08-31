@@ -68,10 +68,10 @@ vi.mock('./hooks/useViewedFiles', () => ({
   })),
 }));
 
-let bridgeEventListener: ((event: BridgeEvent) => void) | null = null;
+let bridgeEventListener: ((event: BridgeEvent) => void | Promise<void>) | null = null;
 
 vi.mock('./bridgeEvents', () => ({
-  subscribeToBridgeEvents: vi.fn((listener: (event: BridgeEvent) => void) => {
+  subscribeToBridgeEvents: vi.fn((listener: (event: BridgeEvent) => void | Promise<void>) => {
     bridgeEventListener = listener;
     return () => {
       bridgeEventListener = null;
@@ -808,7 +808,7 @@ describe('App Component - Per-File View Modes', () => {
     });
   });
 
-  it('keeps per-file selections after triggering refresh', async () => {
+  it('refetches the diff on a bridge refresh and keeps per-file selections', async () => {
     const mockGlobalFetch = vi.mocked(global.fetch);
     mockGlobalFetch.mockClear();
     stubFetch();
@@ -817,12 +817,9 @@ describe('App Component - Per-File View Modes', () => {
     const tsSection = await findFileSection(container, 'test.ts');
     fireEvent.click(within(tsSection).getByRole('button', { name: 'Split' }));
 
-    act(() => {
-      bridgeEventListener?.({ type: 'reload' });
+    await act(async () => {
+      await bridgeEventListener?.({ type: 'reload' });
     });
-
-    const refreshButton = await screen.findByRole('button', { name: 'Refresh' });
-    fireEvent.click(refreshButton);
 
     await waitFor(() => {
       const diffCalls = mockGlobalFetch.mock.calls.filter(([url]) =>
