@@ -134,6 +134,48 @@ describe('generateFileExplanation', () => {
     expect(result.additionalFilesNeeded).toEqual(['src/b.ts', 'src/a.ts']);
   });
 
+  // The schemas carry no validator, so an answer that skips a required field
+  // arrives intact: reading it as offered used to throw "e is not iterable".
+  it('reads an answer that omits the requested files as requesting none', async () => {
+    mockObject(explanation());
+
+    const result = await generateFileExplanation({
+      prompt: 'p',
+      candidateFiles: ['src/a.ts'],
+      model: 'anthropic/claude-sonnet-5',
+      apiKey: 'k',
+    });
+
+    expect(result.additionalFilesNeeded).toEqual([]);
+    expect(result.fileSummary).toBe('Runs the app.');
+  });
+
+  it('keeps only the string paths of a mixed requested-files list', async () => {
+    mockObject(explanation({ additionalFilesNeeded: ['src/a.ts', null, 7] as never }));
+
+    const result = await generateFileExplanation({
+      prompt: 'p',
+      candidateFiles: ['src/a.ts'],
+      model: 'anthropic/claude-sonnet-5',
+      apiKey: 'k',
+    });
+
+    expect(result.additionalFilesNeeded).toEqual(['src/a.ts']);
+  });
+
+  it('rejects an answer with no readable summary or symbol list', async () => {
+    mockObject({ fileSummary: 'Runs the app.', symbols: 'not a list' });
+
+    await expect(
+      generateFileExplanation({
+        prompt: 'p',
+        candidateFiles: [],
+        model: 'anthropic/claude-sonnet-5',
+        apiKey: 'k',
+      }),
+    ).rejects.toThrow('could not read');
+  });
+
   it('forwards the abort signal', async () => {
     mockObject(explanation());
     const controller = new AbortController();
@@ -188,6 +230,35 @@ describe('generateNarration', () => {
       { path: 'b.ts', narrative: 'B.' },
       { path: 'a.ts', narrative: '' },
       { path: 'c.ts', narrative: '' },
+    ]);
+  });
+
+  it('narrates nothing rather than failing when the card list is unusable', async () => {
+    mockObject({ intro: 'Intro.', epilogue: 'Epilogue.' });
+
+    const result = await generateNarration({
+      prompt: 'p',
+      paths: ['a.ts', 'b.ts'],
+      model: 'anthropic/claude-opus-5',
+      apiKey: 'k',
+    });
+
+    expect(result.cards).toEqual([
+      { path: 'a.ts', narrative: '' },
+      { path: 'b.ts', narrative: '' },
+    ]);
+    expect(result.intro).toBe('Intro.');
+  });
+
+  it('drops cards that are not a path and a narrative', async () => {
+    const result = await narrate(
+      [{ path: 'a.ts' }, 'b.ts', { path: 'b.ts', narrative: 'B.' }] as never,
+      ['a.ts', 'b.ts'],
+    );
+
+    expect(result.cards).toEqual([
+      { path: 'b.ts', narrative: 'B.' },
+      { path: 'a.ts', narrative: '' },
     ]);
   });
 });

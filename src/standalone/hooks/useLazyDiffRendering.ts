@@ -10,6 +10,14 @@ const SIDEBAR_SCROLL_CORRECTION_DELAY_MS = 180;
 
 interface UseLazyDiffRenderingOptions {
   diffData: DiffResponse | null;
+  /**
+   * The paths actually rendered as sections, in the order they appear: hidden
+   * files removed and the narrated order applied. Rendering and scrolling
+   * measure the DOM, so they must follow this rather than the diff's own
+   * order — a path missing from the DOM never reports itself as rendered, and
+   * waiting on one strands the scroll.
+   */
+  orderedFilePaths: string[];
   diffScrollContainerRef: React.RefObject<HTMLElement | null>;
   setDiffData: React.Dispatch<React.SetStateAction<DiffResponse | null>>;
 }
@@ -31,6 +39,7 @@ interface UseLazyDiffRenderingReturn {
 
 export function useLazyDiffRendering({
   diffData,
+  orderedFilePaths,
   diffScrollContainerRef,
   setDiffData,
 }: UseLazyDiffRenderingOptions): UseLazyDiffRenderingReturn {
@@ -44,9 +53,14 @@ export function useLazyDiffRendering({
 
   useEffect(() => {
     if (!diffData) {
-      const nextPaths = new Set<string>();
-      renderedFilePathsRef.current = nextPaths;
-      setRenderedFilePaths(nextPaths);
+      // Only when there is something to clear: this effect also re-runs for a
+      // new `orderedFilePaths` identity, and an unconditional reset would set
+      // a fresh Set every render.
+      if (renderedFilePathsRef.current.size > 0) {
+        const nextPaths = new Set<string>();
+        renderedFilePathsRef.current = nextPaths;
+        setRenderedFilePaths(nextPaths);
+      }
       generatedStatusCheckedRef.current.clear();
       renderedRevisionKeyRef.current = null;
       return;
@@ -58,14 +72,11 @@ export function useLazyDiffRendering({
     }
     renderedRevisionKeyRef.current = revisionKey;
 
-    const initialPaths = diffData.files
-      .slice(0, INITIAL_RENDERED_FILE_COUNT)
-      .map((file) => file.path);
-    const nextPaths = new Set(initialPaths);
+    const nextPaths = new Set(orderedFilePaths.slice(0, INITIAL_RENDERED_FILE_COUNT));
     renderedFilePathsRef.current = nextPaths;
     setRenderedFilePaths(nextPaths);
     generatedStatusCheckedRef.current.clear();
-  }, [diffData]);
+  }, [diffData, orderedFilePaths]);
 
   const ensureFileRendered = useCallback((filePath: string) => {
     const node = lazyFileNodesRef.current.get(filePath);
@@ -153,8 +164,7 @@ export function useLazyDiffRendering({
 
   const ensureFilesRenderedUpTo = useCallback(
     (filePath: string) => {
-      if (!diffData) return;
-      const targetIndex = diffData.files.findIndex((file) => file.path === filePath);
+      const targetIndex = orderedFilePaths.indexOf(filePath);
       if (targetIndex < 0) return;
 
       const observer = lazyFileObserverRef.current;
@@ -163,7 +173,7 @@ export function useLazyDiffRendering({
         let changed = false;
         const next = new Set(prev);
         for (let i = 0; i <= targetIndex; i++) {
-          const path = diffData.files[i]?.path;
+          const path = orderedFilePaths[i];
           if (path && !next.has(path)) {
             next.add(path);
             changed = true;
@@ -179,7 +189,7 @@ export function useLazyDiffRendering({
         return changed ? next : prev;
       });
     },
-    [diffData],
+    [orderedFilePaths],
   );
 
   const isFileScrolledPastContainerTop = useCallback(
@@ -270,14 +280,14 @@ export function useLazyDiffRendering({
     (filePath: string) => {
       ensureFilesRenderedUpTo(filePath);
 
-      const targetIndex = diffData?.files.findIndex((file) => file.path === filePath) ?? -1;
+      const targetIndex = orderedFilePaths.indexOf(filePath);
       const requiredSectionIds =
-        diffData && targetIndex >= 0
-          ? diffData.files.slice(0, targetIndex + 1).map((file) => getFileElementId(file.path))
+        targetIndex >= 0
+          ? orderedFilePaths.slice(0, targetIndex + 1).map((path) => getFileElementId(path))
           : [getFileElementId(filePath)];
       scrollElementIntoDiffContainer(getFileElementId(filePath), requiredSectionIds);
     },
-    [diffData, ensureFilesRenderedUpTo, scrollElementIntoDiffContainer],
+    [orderedFilePaths, ensureFilesRenderedUpTo, scrollElementIntoDiffContainer],
   );
 
   const scrollNarrationCardIntoView = useCallback(

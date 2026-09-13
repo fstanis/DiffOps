@@ -38,6 +38,8 @@ export interface Lg2WorkerFileSystem {
 export interface Lg2Module {
   FS: Lg2FileSystem & { filesystems: Record<string, unknown> };
   WORKERFS: Lg2WorkerFileSystem;
+  /** The wasm entry point, the one export the module names for itself. */
+  _main: unknown;
   callMain(args: string[]): number;
   /** Runs lg2 with stdout/stderr captured; throws `<exitCode>: <stderr>` on failure. */
   callWithOutput(args: string[]): string;

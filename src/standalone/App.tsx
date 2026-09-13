@@ -295,6 +295,19 @@ function App({
   });
   const isNarrationActive = narration.isNarratedView && narration.narration !== null;
 
+  // The single ordering source of truth; sidebar, main scroll, cursor, and anchors all consume this array.
+  const displayFiles = useMemo(() => {
+    if (!isNarrationActive || !narration.narration) {
+      return visibleFiles;
+    }
+    return orderFilesByNarration(visibleFiles, narration.narration);
+  }, [isNarrationActive, narration.narration, visibleFiles]);
+
+  // Lazy rendering and every file-level scroll measure against the rendered
+  // sections, so they follow this order — not the diff's git order, which
+  // still lists hidden files and predates the narrated shuffle.
+  const displayFilePaths = useMemo(() => displayFiles.map((file) => file.path), [displayFiles]);
+
   useEffect(() => {
     if (commentsContextKey !== bootstrappedCommentsKey) {
       skipNextCommentSyncRef.current = false;
@@ -387,6 +400,7 @@ function App({
     isFileScrolledPastContainerTop,
   } = useLazyDiffRendering({
     diffData,
+    orderedFilePaths: displayFilePaths,
     diffScrollContainerRef,
     setDiffData,
   });
@@ -545,14 +559,6 @@ function App({
     );
   }, [diffData, diffDataVersion, filesByPath, renderedFilePaths, lastUpdatedAt]);
 
-  // The single ordering source of truth; sidebar, main scroll, cursor, and anchors all consume this array.
-  const displayFiles = useMemo(() => {
-    if (!isNarrationActive || !narration.narration) {
-      return visibleFiles;
-    }
-    return orderFilesByNarration(visibleFiles, narration.narration);
-  }, [isNarrationActive, narration.narration, visibleFiles]);
-
   // The sidebar keeps listing hidden files — dimmed, and after the narrated
   // order — so the eye that hid them is also the way back.
   const sidebarFiles = useMemo(() => {
@@ -586,7 +592,7 @@ function App({
   const handleResetFileViewModes = useCallback(() => {
     const resetModes: FileViewModesByPath = {};
     displayFiles.forEach((file) => {
-      resetModes[file.path] = 'split';
+      resetModes[file.path] = DEFAULT_FILE_VIEW_MODE;
     });
     setFileViewModes(resetModes);
   }, [displayFiles]);
@@ -1402,7 +1408,7 @@ function App({
                 type="button"
                 onClick={handleResetFileViewModes}
                 className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded transition-colors duration-200 text-github-text-secondary hover:text-github-text-primary cursor-pointer"
-                title="Reset every file to the split view"
+                title="Reset every file to the unified view"
               >
                 <RotateCcw size={14} />
                 Reset

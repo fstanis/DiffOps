@@ -60,6 +60,34 @@ test('clicking a sidebar file leaves its header flush with the top of the viewpo
   expect(Math.abs(await fileOffsetFromContainerTop(page, target))).toBeLessThanOrEqual(2);
 });
 
+// A hidden file renders no section, so anything that waits for the sections
+// above its target to render has to skip it — waiting on one that can never
+// arrive used to strand every file-level scroll after the first hidden file.
+test('file-level navigation still scrolls once a file above the target is hidden', async ({
+  page,
+}) => {
+  await openWideDiff(page);
+
+  const hiddenRow = page.locator(
+    '#file-tree-panel div[data-file-row="true"]:has(span[title="src/module00/generated00.ts"])',
+  );
+  await hiddenRow.hover();
+  await hiddenRow
+    .getByRole('button', { name: 'Hide this file from the review and the AI' })
+    .click();
+  await expect(hiddenRow).toHaveAttribute('data-file-hidden', 'true');
+
+  const target = 'src/module20/generated20.ts';
+  await page.locator(`#file-tree-panel span[title="${target}"]`).click();
+  await page.waitForTimeout(2000);
+  expect(Math.abs(await fileOffsetFromContainerTop(page, target))).toBeLessThanOrEqual(2);
+
+  // ] moves on from it too: navigation reads the same rendered-section gate.
+  const beforeNext = await scrollTop(page);
+  await page.keyboard.press(']');
+  await expect.poll(() => scrollTop(page)).toBeGreaterThan(beforeNext);
+});
+
 test('switching a file between view modes holds the scroll position', async ({ page }) => {
   await openWideDiff(page);
 

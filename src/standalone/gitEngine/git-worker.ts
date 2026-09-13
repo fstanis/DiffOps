@@ -97,7 +97,7 @@ const createQuietOutputHooks = () => {
     try {
       // callMain mutates the array it receives (it unshifts the program
       // name), so every drain builds a fresh one.
-      lg.callMain(['--index-file', INDEX_FILE, '--git-dir', GIT_DIR_ROOT, 'rev-parse', 'HEAD']);
+      callMain(['--index-file', INDEX_FILE, '--git-dir', GIT_DIR_ROOT, 'rev-parse', 'HEAD']);
     } catch {
       // Repos without commits cannot drain; they have no blob output to
       // leave dangling.
@@ -117,7 +117,7 @@ const createQuietOutputHooks = () => {
       capturedOutput = [];
       capturedError = [];
       quitStatus = null;
-      const exitCode = lg.callMain(args);
+      const exitCode = callMain(args);
       const output = capturedOutput.join('\n');
       const errorText = capturedError.join('\n');
       drainDanglingStdout();
@@ -148,6 +148,58 @@ self.onmessage = (event: MessageEvent<GitWorkerRequest>): void => {
   earlyRequests.push(request);
 };
 
+// The wasm stack allocator, the only stack export this build has (see the
+// vendor README): `fa` is `__emscripten_stack_alloc`. Size 0 reads the
+// 16-byte-aligned stack pointer, a positive size moves it down, and a
+// negative size hands stack back — the export's subtraction wraps in i32.
+const STACK_ALLOC_EXPORT = 'fa';
+const STACK_PROBE_BYTES = 16;
+
+/**
+ * The engine's stack allocator, accepted only once it has behaved like one;
+ * null when a rebuilt engine exports it under some other minified name, which
+ * costs the balancing below, not the engine.
+ */
+const resolveStackAllocate = (
+  exports: WebAssembly.Exports | null,
+  main: unknown,
+): ((size: number) => number) | null => {
+  const candidate = exports?.[STACK_ALLOC_EXPORT];
+  // Calling the wrong export could run git with no arguments; main is the
+  // one this module can identify, so it is the one worth refusing outright.
+  if (typeof candidate !== 'function' || candidate === main) {
+    return null;
+  }
+  const allocate = candidate as (size: number) => number;
+  const pointer = allocate(0);
+  if (!Number.isInteger(pointer) || pointer <= 0 || pointer % STACK_PROBE_BYTES !== 0) {
+    return null;
+  }
+  return allocate(STACK_PROBE_BYTES) === pointer - STACK_PROBE_BYTES &&
+    allocate(-STACK_PROBE_BYTES) === pointer
+    ? allocate
+    : null;
+};
+
+const loadEngineWasm = async (): Promise<WebAssembly.Module> => {
+  // The same URL the vendor module would resolve itself: the build copies the
+  // wasm next to the bundled worker.
+  const wasmUrl = new URL('./lg2_workerfs.wasm', import.meta.url);
+  try {
+    return await WebAssembly.compileStreaming(fetch(wasmUrl, { credentials: 'same-origin' }));
+  } catch (error) {
+    // Streaming needs the application/wasm MIME type; fall back the way the
+    // vendor module does when a host serves it as something else.
+    notifyError(
+      `wasm streaming compile failed, falling back to ArrayBuffer: ${formatError(error)}`,
+    );
+    const response = await fetch(wasmUrl, { credentials: 'same-origin' });
+    return WebAssembly.compile(await response.arrayBuffer());
+  }
+};
+
+let stackAllocate: ((size: number) => number) | null = null;
+
 const initEngine = async (): Promise<Lg2Module> => {
   notify('worker starting');
   // Import the engine dynamically so "worker starting" is logged even when
@@ -164,7 +216,32 @@ const initEngine = async (): Promise<Lg2Module> => {
   const initStartedAt = performance.now();
   let lg: Lg2Module;
   try {
-    lg = await createLg2Module(createQuietOutputHooks());
+    // instantiateWasm is Emscripten's documented seam for owning the
+    // instantiation; it is the only way to reach the wasm exports this build
+    // keeps off the module object, and the stack pointer is one of them
+    // (see callMain below). The module is compiled first so instantiation
+    // itself stays synchronous — a failure there surfaces here rather than
+    // leaving createLg2Module waiting for a callback that never comes.
+    const wasmModule = await loadEngineWasm();
+    let engineExports: WebAssembly.Exports | null = null;
+    lg = await createLg2Module({
+      ...createQuietOutputHooks(),
+      instantiateWasm: (
+        imports: WebAssembly.Imports,
+        onSuccess: (instance: WebAssembly.Instance) => void,
+      ): WebAssembly.Exports => {
+        const instance = new WebAssembly.Instance(wasmModule, imports);
+        engineExports = instance.exports;
+        onSuccess(instance);
+        return instance.exports;
+      },
+    });
+    stackAllocate = resolveStackAllocate(engineExports, lg._main);
+    if (!stackAllocate) {
+      notifyError(
+        `the engine does not export its stack allocator as "${STACK_ALLOC_EXPORT}"; long sessions will exhaust the wasm stack`,
+      );
+    }
   } catch (error) {
     notifyError(
       `wasm-git failed to initialize: ${error instanceof Error ? error.message : String(error)}`,
@@ -177,6 +254,29 @@ const initEngine = async (): Promise<Lg2Module> => {
 
 const lg = await initEngine();
 const FS = lg.FS;
+
+// Emscripten's callMain is written for a program that runs main once and
+// exits: it puts argv and every argument string on the wasm stack and never
+// restores the pointer. This engine runs main again for every git command, so
+// the pointer walked a few hundred bytes further down per command and, around
+// the 350th, off the end of the stack: the next command overwrote whatever
+// sits below it and the instance died mid-command with an opaque wasm trap
+// ("table index is out of bounds", "memory access out of bounds") that every
+// later request inherited, nothing in a corrupted instance being recoverable.
+// Handing the stack back leaves the pointer where it started, for any number
+// of commands (engine-check covers 400).
+const callMain = (args: string[]): number => {
+  const allocate = stackAllocate;
+  if (!allocate) {
+    return lg.callMain(args);
+  }
+  const stackPointer = allocate(0);
+  try {
+    return lg.callMain(args);
+  } finally {
+    allocate(allocate(0) - stackPointer);
+  }
+};
 
 // A picked File is a point-in-time snapshot: the moment the file changes on
 // disk the browser refuses to read it, and WORKERFS reads worktree files
@@ -475,8 +575,21 @@ const processRequest = async (request: GitWorkerRequest): Promise<void> => {
   }
 };
 
+// Every request touches shared mutable state on the emulated FS (mount swaps
+// /repo and /gitdir out from under it; run reads through them). Dispatching
+// requests as they arrive let a `run` execute mid-mount, after
+// dropPreviousRepository() tore the filesystem down but before the new
+// snapshot was written back — libgit2 then dereferenced freed/missing mmap'd
+// state, crashing the whole wasm heap with "memory access out of bounds" for
+// every request after. Chaining onto one queue makes each request wait for
+// the previous one's awaits to fully settle before starting.
+let requestQueue: Promise<void> = Promise.resolve();
+
 handleRequest = (request: GitWorkerRequest): void => {
-  void processRequest(request);
+  // processRequest already reports its own failures via respond(); the catch
+  // here only guards the queue itself, so one unexpected rejection can't wedge
+  // every request behind it forever.
+  requestQueue = requestQueue.then(() => processRequest(request)).catch(() => {});
 };
 for (const request of earlyRequests.splice(0)) {
   handleRequest(request);

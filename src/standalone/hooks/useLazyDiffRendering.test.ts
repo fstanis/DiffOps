@@ -10,6 +10,7 @@ function renderLazyDiffRendering(container: HTMLElement | null) {
   return renderHook(() =>
     useLazyDiffRendering({
       diffData: null,
+      orderedFilePaths: [],
       diffScrollContainerRef: { current: container },
       setDiffData: () => {},
     }),
@@ -97,6 +98,7 @@ describe('useLazyDiffRendering', () => {
       const { result } = renderHook(() =>
         useLazyDiffRendering({
           diffData,
+          orderedFilePaths: files.map((file) => file.path),
           diffScrollContainerRef: { current: container },
           setDiffData: () => {},
         }),

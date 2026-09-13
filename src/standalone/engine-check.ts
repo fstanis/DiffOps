@@ -28,11 +28,14 @@ interface FixtureExpectations {
   workingModifiedPath: string;
   workingMarker: string;
   packageJsonLineCount: number;
+  committedHead: string;
 }
 
 interface FixtureManifest {
   repoName: string;
   files: string[];
+  /** `.git` paths of the post-commit snapshot, served under `committed/`. */
+  committedFiles: string[];
   expected: FixtureExpectations;
 }
 
@@ -56,6 +59,10 @@ declare global {
 }
 
 const FETCH_BATCH_SIZE = 16;
+// More git commands than the wasm stack survived before callMain's leak was
+// balanced (it died around the 115th), so the check fails on a regression
+// instead of only on a repository the engine cannot read.
+const LONG_SESSION_COMMANDS = 400;
 const REQUEST_TIMEOUT_MS = 60_000;
 
 const appElement = document.createElement('main');
@@ -179,13 +186,13 @@ const expect = (condition: boolean, message: string): void => {
 const encodeFixturePath = (path: string): string =>
   path.split('/').map(encodeURIComponent).join('/');
 
-const fetchFixtureFiles = async (paths: string[]): Promise<WalkedFile[]> => {
+const fetchFixtureFiles = async (paths: string[], prefix = ''): Promise<WalkedFile[]> => {
   const files: WalkedFile[] = [];
   for (let offset = 0; offset < paths.length; offset += FETCH_BATCH_SIZE) {
     const batch = paths.slice(offset, offset + FETCH_BATCH_SIZE);
     const entries = await Promise.all(
       batch.map(async (path) => {
-        const response = await fetch(`./fixture/${encodeFixturePath(path)}`);
+        const response = await fetch(`./fixture/${prefix}${encodeFixturePath(path)}`);
         expect(
           response.ok,
           `fixture fetch failed for "${path}" (HTTP ${response.status}) — is DIFFOPS_FIXTURE_DIR set on the preview server?`,
@@ -422,6 +429,55 @@ void (async () => {
         expect(
           diff.files.length === expected.workingChangedFiles,
           `working diff after refresh has ${diff.files.length} files, expected ${expected.workingChangedFiles}`,
+        );
+      }),
+    );
+
+    results.push(
+      await runCheck('refresh onto a commit made outside the app', async () => {
+        // Everything the fixture left uncommitted is committed in the served
+        // `committed/` snapshot, so the refreshed mount pairs the same working
+        // tree with a `.git` whose objects, branch ref and index the engine
+        // has never seen — what the reader hits after committing in a terminal.
+        const committedGitFiles = await fetchFixtureFiles(manifest.committedFiles, 'committed/');
+        const worktreeFiles = files.filter(
+          (entry) => entry.path !== '.git' && !entry.path.startsWith('.git/'),
+        );
+        await engine.refresh([...worktreeFiles, ...committedGitFiles]);
+        const revisions = await engine.revisions();
+        expect(
+          revisions.commits[0]?.hash === expected.committedHead,
+          `HEAD after the commit is ${revisions.commits[0]?.hash}, expected ${expected.committedHead}`,
+        );
+        const diff = await engine.diff({ base: 'HEAD', target: '.' }, true);
+        expect(
+          diff.files.length === 0,
+          `the committed working tree still diffs against HEAD: ${diff.files.map((file) => file.path).join(', ')}`,
+        );
+        // The snapshot the remaining checks expect.
+        await engine.refresh(files);
+      }),
+    );
+
+    results.push(
+      await runCheck(`the engine survives ${LONG_SESSION_COMMANDS} git commands`, async () => {
+        // Every command runs lg2's main again; a session that reads blobs,
+        // line counts and generated status per file reaches these numbers
+        // quickly, and the engine used to die mid-command once the leaked
+        // stack ran out — taking every later request with it.
+        for (let index = 0; index < LONG_SESSION_COMMANDS; index += 1) {
+          const result = await client.run(['rev-parse', 'HEAD']);
+          expect(
+            result.exitCode === 0 && result.stdout.trim() === expected.headHash,
+            `command ${index + 1}/${LONG_SESSION_COMMANDS} returned "${result.stdout.trim()}" (exit ${result.exitCode}): ${result.stderr}`,
+          );
+        }
+        // A diff exercises far more of the engine than rev-parse does, so it
+        // is the honest proof the instance is still whole.
+        const diff = await engine.diff({ base: 'HEAD', target: '.' }, true);
+        expect(
+          diff.files.length === expected.workingChangedFiles,
+          `the diff after ${LONG_SESSION_COMMANDS} commands has ${diff.files.length} files, expected ${expected.workingChangedFiles}`,
         );
       }),
     );

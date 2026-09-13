@@ -5,7 +5,7 @@
 // whitespace-only change, and staged + unstaged working-tree edits — every
 // shape that has broken the wasm engine so far. The real git CLI computes the
 // expectations the browser run compares against.
-import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 
 const repoDir = process.argv[2] ?? '/tmp/diffops-engine-fixture';
@@ -15,6 +15,9 @@ const isLoose = process.argv.includes('--loose');
 const WORKING_MARKER = '// UNSTAGED_MARKER';
 const WIDE_FILE_COUNT = 30;
 const WIDE_FILE_LINES = 300;
+// Holds the post-commit `.git` the refresh check mounts; served alongside the
+// repository but kept out of its own file list.
+const COMMITTED_SNAPSHOT_DIR = 'committed';
 
 // Hermetic config: no user/system git config, fixed identity and dates, so
 // the generated hashes are deterministic.
@@ -275,9 +278,6 @@ Staged edit.
     packageJsonLineCount: countLines(git(['show', 'HEAD:package.json'])),
   };
 
-  const manifestPath = join(repoDir, 'manifest.json');
-  rmSync(manifestPath, { force: true });
-
   const walkFiles = (dir, prefix) => {
     const files = [];
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -289,13 +289,39 @@ Staged edit.
     }
     return files;
   };
+
+  // The `.git` a `git commit` made outside the app leaves behind: new loose
+  // objects, a moved branch ref and a rewritten index, none of which a mounted
+  // engine has seen. Refreshing onto it is the shape that crashed the wasm
+  // heap ("table index is out of bounds"), so the fixture ships it as a second
+  // snapshot. The commit runs in a copy, leaving this repository exactly as
+  // the expectations above describe it.
+  const committedDir = join(repoDir, COMMITTED_SNAPSHOT_DIR);
+  rmSync(committedDir, { recursive: true, force: true });
+  const commitSourceDir = join(dirname(repoDir), `${basename(repoDir)}-committed-source`);
+  rmSync(commitSourceDir, { recursive: true, force: true });
+  cpSync(repoDir, commitSourceDir, { recursive: true });
+  gitIn(commitSourceDir, ['add', '-A']);
+  commitIndex += 1;
+  gitIn(commitSourceDir, ['commit', '-m', 'committed outside diffops']);
+  expected.committedHead = gitIn(commitSourceDir, ['rev-parse', 'HEAD']);
+  mkdirSync(committedDir, { recursive: true });
+  cpSync(join(commitSourceDir, '.git'), join(committedDir, '.git'), { recursive: true });
+
+  const manifestPath = join(repoDir, 'manifest.json');
+  rmSync(manifestPath, { force: true });
+
   const files = walkFiles(repoDir, '').filter(
-    (path) => path !== 'manifest.json' && !path.startsWith('.DS_Store'),
+    (path) =>
+      path !== 'manifest.json' &&
+      !path.startsWith('.DS_Store') &&
+      !path.startsWith(`${COMMITTED_SNAPSHOT_DIR}/`),
   );
+  const committedFiles = walkFiles(join(committedDir, '.git'), '.git/');
 
   writeFileSync(
     manifestPath,
-    `${JSON.stringify({ repoName: 'engine-fixture', files, expected }, null, 2)}\n`,
+    `${JSON.stringify({ repoName: 'engine-fixture', files, committedFiles, expected }, null, 2)}\n`,
   );
 
   const fileCount = files.filter((path) => path.startsWith('.git/')).length;

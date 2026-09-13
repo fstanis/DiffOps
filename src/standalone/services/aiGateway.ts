@@ -69,6 +69,34 @@ const FINAL_ROUND_EXPLANATION_SCHEMA = jsonSchema<Omit<FileExplanation, 'additio
   },
 });
 
+// A `jsonSchema()` without a `validate` function carries no validator, so the
+// SDK hands back whatever JSON the model produced — a required field the model
+// left out arrives as undefined. Every answer is therefore checked here rather
+// than trusted; an omitted `additionalFilesNeeded` used to reach the UI as
+// "e is not iterable".
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+const asStringArray = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
+
+/** The half of an explanation the panel cannot render without; anything else is recoverable. */
+function readExplanationCore(object: unknown): Omit<FileExplanation, 'additionalFilesNeeded'> {
+  if (
+    !isRecord(object) ||
+    typeof object.fileSummary !== 'string' ||
+    !Array.isArray(object.symbols)
+  ) {
+    throw new Error('The model returned an explanation this app could not read');
+  }
+  return {
+    fileSummary: object.fileSummary,
+    symbols: object.symbols.filter((symbol): symbol is FileExplanation['symbols'][number] =>
+      isRecord(symbol),
+    ),
+  };
+}
+
 /**
  * Drops requested files the model was never offered, keeping model order and
  * deduplicating — hallucinated paths cannot reach the UI.
@@ -106,13 +134,17 @@ export async function generateFileExplanation({
 
   if (candidateFiles.length === 0) {
     const { object } = await generateObject({ ...call, schema: FINAL_ROUND_EXPLANATION_SCHEMA });
-    return { ...object, additionalFilesNeeded: [] };
+    return { ...readExplanationCore(object), additionalFilesNeeded: [] };
   }
 
   const { object } = await generateObject({ ...call, schema: FIRST_ROUND_EXPLANATION_SCHEMA });
   return {
-    ...object,
-    additionalFilesNeeded: clampRequestedFiles(object.additionalFilesNeeded, candidateFiles),
+    ...readExplanationCore(object),
+    // A model that answered without requesting anything is asking for nothing.
+    additionalFilesNeeded: clampRequestedFiles(
+      asStringArray(isRecord(object) ? object.additionalFilesNeeded : undefined),
+      candidateFiles,
+    ),
   };
 }
 
@@ -142,17 +174,24 @@ const NARRATION_SCHEMA = jsonSchema<Narration>({
  * Completes the model's card list into a permutation of paths: unknown and
  * duplicate paths are dropped, missing files are appended in prompt order.
  */
-function normalizeNarrationOrder(narration: Narration, paths: string[]): Narration {
+function normalizeNarrationOrder(narration: unknown, paths: string[]): Narration {
+  const answer = isRecord(narration) ? narration : {};
   const knownPaths = new Set(paths);
   const seen = new Set<string>();
   const cards: Narration['cards'] = [];
 
-  for (const card of narration.cards) {
+  // An unusable card list narrates nothing rather than failing the whole
+  // review: every path below still gets its (empty) card, in prompt order.
+  const modelCards = Array.isArray(answer.cards) ? answer.cards : [];
+  for (const card of modelCards) {
+    if (!isRecord(card) || typeof card.path !== 'string' || typeof card.narrative !== 'string') {
+      continue;
+    }
     if (!knownPaths.has(card.path) || seen.has(card.path)) {
       continue;
     }
     seen.add(card.path);
-    cards.push(card);
+    cards.push({ path: card.path, narrative: card.narrative });
   }
 
   for (const path of paths) {
@@ -161,7 +200,11 @@ function normalizeNarrationOrder(narration: Narration, paths: string[]): Narrati
     }
   }
 
-  return { intro: narration.intro, cards, epilogue: narration.epilogue };
+  return {
+    intro: typeof answer.intro === 'string' ? answer.intro : '',
+    cards,
+    epilogue: typeof answer.epilogue === 'string' ? answer.epilogue : '',
+  };
 }
 
 export interface NarrationRequest {

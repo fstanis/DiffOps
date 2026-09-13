@@ -13,5 +13,13 @@ Reproduce by checking out wasm-git at that commit and copying
 console echo of git output is suppressed at runtime by passing capture-only
 `print`/`printErr` module options (see git-worker.ts) — no local edits.
 
+The worker also instantiates the wasm itself (the `instantiateWasm` module
+option) to reach the exports this build keeps off the module object. It wants
+one: `__emscripten_stack_alloc`, minified to **`fa`** in these artifacts,
+which git-worker.ts uses to hand back the stack Emscripten's `callMain` leaks
+on every git command. A rebuild can rename it; the worker verifies the export
+behaves like a stack allocator before trusting it and logs an error when it
+does not, so re-check that name whenever these artifacts are regenerated.
+
 `libgit2-COPYING` is libgit2's license (GPLv2 with linking exception); the
 upstream project is MIT-licensed overall, see the wasm-git repository.

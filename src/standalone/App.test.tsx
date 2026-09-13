@@ -782,7 +782,7 @@ describe('App Component - Per-File View Modes', () => {
     );
   });
 
-  it('resets every file to split via the Reset button', async () => {
+  it('resets every file to unified via the Reset button', async () => {
     window.localStorage.setItem(
       FILE_VIEW_MODES_KEY,
       JSON.stringify({ 'test.ts': 'full', 'docs/guide.md': 'diff-preview' }),
@@ -794,18 +794,18 @@ describe('App Component - Per-File View Modes', () => {
 
     const tsSection = await findFileSection(container, 'test.ts');
     const mdSection = await findFileSection(container, 'docs/guide.md');
-    expect(within(tsSection).getByRole('button', { name: 'Split' })).toHaveAttribute(
+    expect(within(tsSection).getByRole('button', { name: 'Unified' })).toHaveAttribute(
       'aria-pressed',
       'true',
     );
-    expect(within(mdSection).getByRole('button', { name: 'Split' })).toHaveAttribute(
+    expect(within(mdSection).getByRole('button', { name: 'Unified' })).toHaveAttribute(
       'aria-pressed',
       'true',
     );
 
     expect(JSON.parse(window.localStorage.getItem(FILE_VIEW_MODES_KEY) ?? '{}')).toEqual({
-      'test.ts': 'split',
-      'docs/guide.md': 'split',
+      'test.ts': 'unified',
+      'docs/guide.md': 'unified',
     });
   });
 
