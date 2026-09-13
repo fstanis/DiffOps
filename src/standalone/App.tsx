@@ -694,6 +694,27 @@ function App({
     lineIndex: number;
   } | null>(null);
   const fetchDiffDataRef = useRef<((selection?: DiffSelection) => Promise<void>) | null>(null);
+  // Branches and commits move under the reader (a rebasing pull rewrites the
+  // whole list), so every refresh re-reads the options, not just the diff.
+  const fetchRevisionOptions = useCallback(async () => {
+    try {
+      const response = await fetch('/api/revisions');
+      const data = (response.ok ? await response.json() : null) as RevisionsResponse | null;
+      setRevisionOptions(data);
+      if (
+        data?.resolvedBase &&
+        normalizeBaseMode(currentRequestedBaseModeRef.current) !== 'merge-base'
+      ) {
+        setResolvedBaseRevision((prev) => prev || data.resolvedBase || '');
+      }
+      if (data?.resolvedTarget) {
+        setResolvedTargetRevision((prev) => prev || data.resolvedTarget || '');
+      }
+    } catch {
+      setRevisionOptions(null);
+    }
+  }, []);
+
   const handleCommentsChanged = useCallback(async () => {
     try {
       const serverThreads = await fetchServerThreads();
@@ -712,10 +733,14 @@ function App({
   // pulling the diff out from under the reader.
   useEffect(
     () =>
-      subscribeToBridgeEvents((event) =>
-        event.type === 'reload' ? fetchDiffDataRef.current?.() : handleCommentsChanged(),
-      ),
-    [handleCommentsChanged],
+      subscribeToBridgeEvents(async (event) => {
+        if (event.type !== 'reload') {
+          await handleCommentsChanged();
+          return;
+        }
+        await Promise.all([fetchRevisionOptions(), fetchDiffDataRef.current?.()]);
+      }),
+    [fetchRevisionOptions, handleCommentsChanged],
   );
 
   // The hovered file lets `v` work without a cursor.
@@ -1042,22 +1067,8 @@ function App({
   }, [isFileTreeOpen]);
 
   useEffect(() => {
-    fetch('/api/revisions')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: RevisionsResponse | null) => {
-        setRevisionOptions(data);
-        if (
-          data?.resolvedBase &&
-          normalizeBaseMode(currentRequestedBaseModeRef.current) !== 'merge-base'
-        ) {
-          setResolvedBaseRevision((prev) => prev || data.resolvedBase || '');
-        }
-        if (data?.resolvedTarget) {
-          setResolvedTargetRevision((prev) => prev || data.resolvedTarget || '');
-        }
-      })
-      .catch(() => setRevisionOptions(null));
-  }, []);
+    void fetchRevisionOptions();
+  }, [fetchRevisionOptions]);
 
   // Reads the live selection from the ref so the callback stays stable: the
   // route effect below must fire on route changes only, never on its own writes.

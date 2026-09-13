@@ -833,6 +833,29 @@ describe('App Component - Per-File View Modes', () => {
       'test.ts': 'split',
     });
   });
+
+  it('refetches the revision options on a bridge refresh so rewritten history shows up', async () => {
+    const mockGlobalFetch = vi.mocked(global.fetch);
+    mockGlobalFetch.mockClear();
+    stubFetch();
+    renderApp();
+
+    await waitFor(() => {
+      expect(
+        mockGlobalFetch.mock.calls.filter(([url]) => String(url).includes('/api/revisions')),
+      ).toHaveLength(1);
+    });
+
+    await act(async () => {
+      await bridgeEventListener?.({ type: 'reload' });
+    });
+
+    await waitFor(() => {
+      expect(
+        mockGlobalFetch.mock.calls.filter(([url]) => String(url).includes('/api/revisions')),
+      ).toHaveLength(2);
+    });
+  });
 });
 
 describe('App Component - Merge-base selection', () => {
